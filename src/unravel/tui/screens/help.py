@@ -10,15 +10,15 @@ from textual.widgets import Static
 
 HELP_TEXT = """\
 [bold cyan]Thread navigation[/bold cyan]
-  [bold]→ / l[/bold]           Next thread
-  [bold]← / h[/bold]           Previous thread
+  [bold]Tab[/bold]             Next thread
+  [bold]Shift+Tab[/bold]       Previous thread
 
 [bold cyan]Scroll[/bold cyan]
   [bold]↑ ↓[/bold]             Scroll the page
 
 [bold cyan]Row navigation[/bold cyan]
-  [bold]Tab[/bold]             Next row (file)
-  [bold]Shift+Tab[/bold]       Previous row (file)
+  [bold]→ / l[/bold]           Next row (file); wraps to next thread at the end
+  [bold]← / h[/bold]           Previous row (file); wraps to previous thread at the start
   [bold]Enter / Space[/bold]   Expand/collapse diff for current row
   [bold]e[/bold]               Expand all rows on this thread
   [bold]c[/bold]               Collapse all rows on this thread

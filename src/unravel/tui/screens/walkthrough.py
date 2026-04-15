@@ -32,11 +32,11 @@ class WalkthroughScreen(Screen):
     """
 
     BINDINGS = [
-        Binding("right,l", "next_page", "Next thread", show=False),
-        Binding("left,h", "prev_page", "Previous thread", show=False),
-        Binding("tab", "next_row", "Next row", show=False, priority=True),
+        Binding("right,l", "next_row", "Next row", show=False),
+        Binding("left,h", "prev_row", "Previous row", show=False),
+        Binding("tab", "next_page", "Next thread", show=False, priority=True),
         Binding(
-            "shift+tab", "prev_row", "Previous row", show=False, priority=True
+            "shift+tab", "prev_page", "Previous thread", show=False, priority=True
         ),
         Binding("enter,space", "toggle_expand", "Expand/collapse", show=False),
         Binding("e", "expand_all", "Expand all", show=False),
@@ -76,14 +76,14 @@ class WalkthroughScreen(Screen):
             self._refresh_all(scroll_home=True)
 
     def action_next_row(self) -> None:
-        """Tab: focus the next row, or advance to the next page at the end."""
+        """→: focus the next row, or advance to the next page at the end."""
         if self.state.next_row():
             self._refresh_all()
             return
         self.action_next_page()
 
     def action_prev_row(self) -> None:
-        """Shift+Tab: focus the previous row, or go to the previous page at the start."""
+        """←: focus the previous row, or go to the previous page at the start."""
         if self.state.prev_row():
             self._refresh_all()
             return

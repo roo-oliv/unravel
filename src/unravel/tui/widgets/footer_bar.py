@@ -21,19 +21,20 @@ class FooterBar(Static):
 
     def update_state(self, state: WalkthroughState) -> None:
         hints = Text()
-        hints.append(" ←→ ", style="bold")
-        hints.append("thread  ")
         if not state.is_overview:
+            hints.append(" ←→ ", style="bold")
+            hints.append("row   ")
             hints.append(" ↑↓ ", style="bold")
-            hints.append("scroll  ")
-            hints.append(" Tab/Shift+Tab ", style="bold")
-            hints.append("row  ")
+            hints.append("scroll   ")
+        hints.append(" [Shift+]Tab ", style="bold")
+        hints.append("thread   ")
+        if not state.is_overview:
             hints.append(" Enter ", style="bold")
-            hints.append("expand  ")
+            hints.append("expand   ")
             hints.append(" e/c ", style="bold")
-            hints.append("all expand/collapse  ")
+            hints.append("all expand/collapse   ")
         hints.append(" ? ", style="bold")
-        hints.append("help  ")
+        hints.append("help   ")
         hints.append(" q ", style="bold")
         hints.append("quit")
         self.update(hints)

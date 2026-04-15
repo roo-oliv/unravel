@@ -132,7 +132,7 @@ def _render_overview(state: WalkthroughState) -> RenderableType:
 
     parts.append(Text(""))
     parts.append(
-        Text("Press → to start reviewing threads.", style="dim italic")
+        Text("Press Right Arrow → to start.", style="dim italic")
     )
 
     return Group(*parts)

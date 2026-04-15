@@ -58,13 +58,13 @@ def _render_timeline(state: WalkthroughState) -> Group:
     # Status hint line
     status = Text(justify="center")
     if state.is_overview:
-        status.append("press → to start", style="dim italic")
+        status.append("press Right Arrow → to start", style="dim italic")
     elif state.is_full_diff:
         rows = state.current_rows()
         if rows:
             status.append(
                 f"hunk {state.row_index + 1}/{len(rows)} — "
-                "Tab/Shift+Tab focus, Enter to expand",
+                "←→ focus, Enter to expand",
                 style="dim italic",
             )
         else:
@@ -76,7 +76,7 @@ def _render_timeline(state: WalkthroughState) -> Group:
         if rows:
             status.append(
                 f"row {state.row_index + 1}/{len(rows)} — "
-                "Tab/Shift+Tab focus, Enter to expand",
+                "←→ focus, Enter to expand",
                 style="dim italic",
             )
 
