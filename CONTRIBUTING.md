@@ -94,12 +94,26 @@ Releases are driven from GitHub Releases and publish to PyPI via Trusted Publish
 
 The Homebrew tap lives at [roo-oliv/homebrew-unravel](https://github.com/roo-oliv/homebrew-unravel). The `update-homebrew-tap` job in `.github/workflows/release.yml` regenerates the formula (via `homebrew-pypi-poet`) and pushes it to the tap repo automatically after each non-prerelease PyPI upload.
 
-That job requires a one-time setup:
+That job authenticates with a **deploy key** scoped to the tap repo only (strictly narrower than a PAT). One-time setup:
 
-1. Create a fine-grained GitHub Personal Access Token with **Contents: Read and write** scoped to the `roo-oliv/homebrew-unravel` repository only.
-2. In this repo's settings → Secrets and variables → Actions → New repository secret, add it as `HOMEBREW_TAP_TOKEN`.
+```bash
+# 1. Generate an ed25519 keypair locally.
+ssh-keygen -t ed25519 -C "unravel release workflow" -f /tmp/unravel-tap-deploy-key -N ""
 
-Without that secret the `update-homebrew-tap` job is a no-op (emits a warning in the Actions log) — releases still ship, but Homebrew users will be one version behind until you regenerate by hand.
+# 2. Register the public key as a write-enabled deploy key on the tap repo.
+gh api repos/roo-oliv/homebrew-unravel/keys -X POST \
+  -f title="unravel release workflow" \
+  -f key="$(cat /tmp/unravel-tap-deploy-key.pub)" \
+  -F read_only=false
+
+# 3. Store the private key as the HOMEBREW_TAP_DEPLOY_KEY secret.
+gh secret set HOMEBREW_TAP_DEPLOY_KEY --repo roo-oliv/unravel < /tmp/unravel-tap-deploy-key
+
+# 4. Shred the local copies — the keypair now lives only on GitHub.
+rm /tmp/unravel-tap-deploy-key /tmp/unravel-tap-deploy-key.pub
+```
+
+Without the secret the `update-homebrew-tap` job is a no-op (emits a warning in the Actions log) — releases still ship, but Homebrew users will be one version behind until you regenerate by hand.
 
 If you ever need to regenerate manually, follow the procedure in [`homebrew-tap/README.md`](homebrew-tap/README.md).
 
