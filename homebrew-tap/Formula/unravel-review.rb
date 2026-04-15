@@ -16,7 +16,7 @@
 #   5. Commit + push to github.com/roo-oliv/homebrew-unravel on a branch
 #      and open a PR (or push direct) using a fine-grained PAT stored as
 #      HOMEBREW_TAP_TOKEN in the main repo's secrets.
-class Unravel < Formula
+class UnravelReview < Formula
   include Language::Python::Virtualenv
 
   desc "AI-powered CLI that decomposes PR diffs into causal threads for human reviewers"

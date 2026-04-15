@@ -30,8 +30,10 @@ pip install unravel-review
 
 ```bash
 brew tap roo-oliv/unravel
-brew install unravel
+brew install unravel-review
 ```
+
+`brew install unravel` works too — it's a tap-level alias.
 
 ### One-liner (auto-detects uv/pipx)
 
