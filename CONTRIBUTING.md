@@ -92,7 +92,16 @@ Releases are driven from GitHub Releases and publish to PyPI via Trusted Publish
 
 ### Homebrew formula
 
-The Homebrew tap at `roo-oliv/homebrew-unravel` needs a manual formula update on each release until the auto-update workflow is wired up. See `homebrew-tap/README.md` in this repo for the regeneration procedure (it's three commands with `homebrew-pypi-poet`).
+The Homebrew tap lives at [roo-oliv/homebrew-unravel](https://github.com/roo-oliv/homebrew-unravel). The `update-homebrew-tap` job in `.github/workflows/release.yml` regenerates the formula (via `homebrew-pypi-poet`) and pushes it to the tap repo automatically after each non-prerelease PyPI upload.
+
+That job requires a one-time setup:
+
+1. Create a fine-grained GitHub Personal Access Token with **Contents: Read and write** scoped to the `roo-oliv/homebrew-unravel` repository only.
+2. In this repo's settings → Secrets and variables → Actions → New repository secret, add it as `HOMEBREW_TAP_TOKEN`.
+
+Without that secret the `update-homebrew-tap` job is a no-op (emits a warning in the Actions log) — releases still ship, but Homebrew users will be one version behind until you regenerate by hand.
+
+If you ever need to regenerate manually, follow the procedure in [`homebrew-tap/README.md`](homebrew-tap/README.md).
 
 ### If something goes wrong
 

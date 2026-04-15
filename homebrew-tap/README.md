@@ -1,5 +1,7 @@
 # homebrew-unravel
 
+> **Note**: this directory is the original seed for the tap. The authoritative tap now lives at **[roo-oliv/homebrew-unravel](https://github.com/roo-oliv/homebrew-unravel)** and is auto-updated by the `update-homebrew-tap` job in `.github/workflows/release.yml` on every non-prerelease PyPI upload. Edits made here do not reach users — change the tap repo instead, or let the automation handle it.
+
 Homebrew tap for [unravel](https://github.com/roo-oliv/unravel) — an AI-powered CLI that decomposes PR diffs into causal threads for human code reviewers.
 
 ## Install

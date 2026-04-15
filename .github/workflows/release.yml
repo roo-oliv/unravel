@@ -87,3 +87,85 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --clobber
+
+  update-homebrew-tap:
+    name: Update Homebrew tap
+    # Runs after PyPI upload succeeds, which by construction only happens for
+    # non-prereleases (publish-pypi has the !prerelease guard). Pre-releases
+    # therefore skip this job entirely.
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for HOMEBREW_TAP_TOKEN
+        id: guard
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN secret is not set — skipping tap update."
+            echo "::warning::Create a fine-grained PAT with contents:write on roo-oliv/homebrew-unravel and add it as HOMEBREW_TAP_TOKEN."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out main repo (for the updater script)
+        if: steps.guard.outputs.skip == 'false'
+        uses: actions/checkout@v4
+
+      - name: Check out tap repo
+        if: steps.guard.outputs.skip == 'false'
+        uses: actions/checkout@v4
+        with:
+          repository: roo-oliv/homebrew-unravel
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Wait for PyPI index to surface the new version
+        if: steps.guard.outputs.skip == 'false'
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          for i in $(seq 1 60); do
+            if curl -fsSL -o /dev/null "https://pypi.org/pypi/unravel-review/$TAG/json"; then
+              echo "PyPI has unravel-review==$TAG"
+              exit 0
+            fi
+            echo "Waiting for PyPI (attempt $i/60)..."
+            sleep 5
+          done
+          echo "::error::Timed out waiting for unravel-review==$TAG on PyPI"
+          exit 1
+
+      - name: Generate fresh formula with poet
+        if: steps.guard.outputs.skip == 'false'
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          python3 -m venv /tmp/poet-env
+          /tmp/poet-env/bin/pip install --quiet --upgrade pip
+          # homebrew-pypi-poet still imports pkg_resources, removed in setuptools 81.
+          /tmp/poet-env/bin/pip install --quiet 'setuptools<81' homebrew-pypi-poet "unravel-review==$TAG"
+          /tmp/poet-env/bin/poet -f unravel-review > /tmp/poet-output.rb
+          echo "Poet output preview:"
+          head -20 /tmp/poet-output.rb
+
+      - name: Merge into tap formula
+        if: steps.guard.outputs.skip == 'false'
+        run: |
+          python3 .github/scripts/update_homebrew_formula.py \
+            /tmp/poet-output.rb \
+            tap/Formula/unravel-review.rb
+
+      - name: Commit and push to tap
+        if: steps.guard.outputs.skip == 'false'
+        working-directory: tap
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          if git diff --quiet; then
+            echo "Formula already up to date for $TAG — nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/unravel-review.rb
+          git commit -m "Update unravel-review to $TAG"
+          git push
