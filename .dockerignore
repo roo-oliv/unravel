@@ -1,0 +1,47 @@
+# Keep the build context small and reproducible. .git IS included because
+# hatch-vcs needs it to derive the package version from tags.
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+*.so
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Build artefacts
+dist/
+build/
+
+# Test / tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Editor / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Worktrees + session artefacts
+.worktrees/
+.claude/
+
+# CI-only content (not needed to build the image)
+.github/
+
+# Dotfiles that leak secrets
+.env
+.envrc
