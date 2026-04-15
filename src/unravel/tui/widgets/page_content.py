@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 
-from unravel.models import Thread
+from unravel.models import Hunk, Thread
 from unravel.tui.state import WalkthroughState
 
 CODE_STYLE = "bold cyan"
@@ -92,6 +92,8 @@ def render_page(state: WalkthroughState) -> RenderableType:
     """Build a Rich renderable for the current page."""
     if state.is_overview:
         return _render_overview(state)
+    if state.is_full_diff:
+        return _render_full_diff(state)
     return _render_thread(state)
 
 
@@ -241,3 +243,71 @@ def _render_hunk_diff(hunk) -> RenderableType:
         border_style="dim",
         padding=(0, 1),
     )
+
+
+def _render_full_diff(state: WalkthroughState) -> RenderableType:
+    """Render the full-diff reference page grouped by file.
+
+    This page shows every parsed hunk regardless of thread assignment so the
+    reviewer always has a ground-truth view of the entire change set.
+    """
+    header_text = Text()
+    file_count = len({h.file_path for h in state.all_hunks})
+    hunk_count = len(state.all_hunks)
+    header_text.append("Full diff reference", style="bold cyan")
+    header_text.append("\n")
+    header_text.append(
+        f"{hunk_count} hunk{'s' if hunk_count != 1 else ''} "
+        f"across {file_count} file{'s' if file_count != 1 else ''}",
+        style="dim",
+    )
+
+    covered = _covered_hunk_ids(state)
+    by_file: dict[str, list[Hunk]] = {}
+    for h in state.all_hunks:
+        by_file.setdefault(h.file_path, []).append(h)
+
+    parts: list[RenderableType] = [
+        Panel(header_text, border_style="cyan"),
+        Text(""),
+        Text(
+            "Every hunk in the PR, regardless of thread assignment. "
+            "Use this as a ground-truth reference.",
+            style="dim italic",
+        ),
+        Text(""),
+    ]
+
+    for file_path, file_hunks in by_file.items():
+        file_line = Text()
+        file_line.append(file_path, style="bold yellow")
+        file_line.append(
+            f"  ({len(file_hunks)} hunk{'s' if len(file_hunks) != 1 else ''})",
+            style="dim",
+        )
+        parts.append(file_line)
+        parts.append(Text(""))
+
+        for h in file_hunks:
+            id_line = Text()
+            id_line.append(f"  {h.id}", style="bold cyan")
+            if h.content != "[binary file]":
+                end = h.new_start + max(h.new_count - 1, 0)
+                id_line.append(f"  (lines {h.new_start}-{end})", style="dim")
+            if h.id not in covered:
+                id_line.append("  [orphaned]", style="bold red")
+            parts.append(id_line)
+            parts.append(_render_hunk_diff(h))
+            parts.append(Text(""))
+
+    return Group(*parts)
+
+
+def _covered_hunk_ids(state: WalkthroughState) -> set[str]:
+    covered: set[str] = set()
+    for thread in state.walkthrough.threads:
+        for step in thread.steps:
+            for h in step.hunks:
+                if h.id:
+                    covered.add(h.id)
+    return covered

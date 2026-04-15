@@ -226,7 +226,7 @@ def _run(
         else:
             from unravel.tui import UnravelApp
 
-            app = UnravelApp(walkthrough=walkthrough)
+            app = UnravelApp(walkthrough=walkthrough, all_hunks=hunks)
             app.run()
 
     except UnravelGitError as exc:

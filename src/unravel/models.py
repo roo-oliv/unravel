@@ -61,7 +61,7 @@ EXTENSION_LANGUAGES: dict[str, str] = {
 
 @dataclass
 class Hunk:
-    file_path: str
+    file_path: str = ""
     old_start: int = 0
     old_count: int = 0
     new_start: int = 0
@@ -70,9 +70,11 @@ class Hunk:
     context_before: str = ""
     context_after: str = ""
     language: str | None = None
+    id: str = ""
 
     def to_dict(self) -> dict:
         return {
+            "id": self.id,
             "file_path": self.file_path,
             "old_start": self.old_start,
             "old_count": self.old_count,
@@ -105,7 +107,7 @@ class ThreadStep:
     @classmethod
     def from_dict(cls, data: dict) -> ThreadStep:
         return cls(
-            hunks=[Hunk.from_dict(h) for h in data["hunks"]],
+            hunks=[_parse_hunk_ref(h) for h in data["hunks"]],
             narration=data["narration"],
             order=data["order"],
         )
@@ -176,6 +178,17 @@ class Walkthrough:
         return cls.from_dict(json.loads(text), raw_diff=raw_diff)
 
 
+def _parse_hunk_ref(ref: str | dict) -> Hunk:
+    """Parse a hunk reference from the LLM response.
+
+    The schema expects a string ID (e.g., "H7"), but we also accept a dict for
+    backward compatibility with hand-written tests and older fixtures.
+    """
+    if isinstance(ref, str):
+        return Hunk(id=ref)
+    return Hunk.from_dict(ref)
+
+
 WALKTHROUGH_JSON_SCHEMA: dict = {
     "type": "object",
     "required": ["threads", "overview", "suggested_order"],
@@ -236,16 +249,17 @@ WALKTHROUGH_JSON_SCHEMA: dict = {
                                 "hunks": {
                                     "type": "array",
                                     "items": {
-                                        "type": "object",
-                                        "required": ["file_path", "new_start", "new_count"],
-                                        "properties": {
-                                            "file_path": {"type": "string"},
-                                            "old_start": {"type": "integer"},
-                                            "old_count": {"type": "integer"},
-                                            "new_start": {"type": "integer"},
-                                            "new_count": {"type": "integer"},
-                                        },
+                                        "type": "string",
+                                        "description": (
+                                            "Hunk ID from the File Summary "
+                                            "(e.g., 'H7'). Must match exactly."
+                                        ),
                                     },
+                                    "description": (
+                                        "IDs of hunks belonging to this step. "
+                                        "Every hunk ID must appear in at least "
+                                        "one step across all threads."
+                                    ),
                                 },
                             },
                         },

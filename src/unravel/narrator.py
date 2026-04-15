@@ -20,19 +20,23 @@ def validate_walkthrough(walkthrough: Walkthrough, hunks: list[Hunk]) -> list[st
 
 
 def _check_hunk_coverage(walkthrough: Walkthrough, hunks: list[Hunk]) -> list[str]:
-    """Check that every parsed hunk is referenced by at least one thread."""
+    """Check that every parsed hunk ID is referenced by at least one thread."""
     warnings: list[str] = []
-    covered: set[tuple[str, int, int]] = set()
+    covered: set[str] = set()
     for thread in walkthrough.threads:
         for step in thread.steps:
             for h in step.hunks:
-                covered.add((h.file_path, h.new_start, h.new_count))
+                if h.id:
+                    covered.add(h.id)
 
     for h in hunks:
-        key = (h.file_path, h.new_start, h.new_count)
-        if key not in covered:
+        if not h.id:
+            continue
+        if h.id not in covered:
+            end = h.new_start + max(h.new_count - 1, 0)
             warnings.append(
-                f"Orphaned hunk: {h.file_path} (lines {h.new_start}-{h.new_start + h.new_count})"
+                f"Orphaned hunk {h.id}: {h.file_path} "
+                f"(lines {h.new_start}-{end})"
             )
     return warnings
 

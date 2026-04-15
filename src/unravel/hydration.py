@@ -8,57 +8,84 @@ from unravel.models import Hunk, Walkthrough
 def hydrate_walkthrough(
     walkthrough: Walkthrough, parsed_hunks: list[Hunk]
 ) -> tuple[Walkthrough, list[str]]:
-    """Match LLM hunk references to parsed hunks and copy content + language.
+    """Replace LLM hunk references with fully-populated parsed hunks.
 
-    Returns (walkthrough, warnings). The walkthrough is mutated in place.
+    The LLM references hunks by stable IDs (e.g., ``H7``) assigned in the
+    File Summary. This step looks each ID up in the parsed hunk list and
+    substitutes the full Hunk (with content + language) into each step.
+
+    Returns ``(walkthrough, warnings)``. Unknown IDs are logged as warnings
+    and the placeholder is left in place.
     """
     warnings: list[str] = []
-    exact = _build_exact_index(parsed_hunks)
-    fuzzy = _build_fuzzy_index(parsed_hunks)
+    by_id = {h.id: h for h in parsed_hunks if h.id}
 
     for thread in walkthrough.threads:
         for step in thread.steps:
-            for hunk in step.hunks:
-                key = (hunk.file_path, hunk.new_start, hunk.new_count)
-                if key in exact:
-                    source = exact[key]
-                    hunk.content = source.content
-                    hunk.language = source.language
-                else:
-                    fuzzy_key = (hunk.file_path, hunk.new_start)
-                    if fuzzy_key in fuzzy:
-                        source = _closest_by_count(fuzzy[fuzzy_key], hunk.new_count)
-                        hunk.content = source.content
-                        hunk.language = source.language
-                        warnings.append(
-                            f"Fuzzy match for {hunk.file_path} "
-                            f"(new_start={hunk.new_start}, "
-                            f"expected count={hunk.new_count}, "
-                            f"matched count={source.new_count})"
-                        )
+            resolved: list[Hunk] = []
+            for ref in step.hunks:
+                hunk_id = ref.id
+                if not hunk_id:
+                    # Legacy dict-shaped reference; match by (path, new_start, new_count).
+                    matched = _match_by_position(ref, parsed_hunks)
+                    if matched is not None:
+                        resolved.append(matched)
                     else:
                         warnings.append(
-                            f"No matching parsed hunk for {hunk.file_path} "
-                            f"(new_start={hunk.new_start}, new_count={hunk.new_count})"
+                            f"Legacy hunk reference could not be matched: "
+                            f"{ref.file_path} "
+                            f"(new_start={ref.new_start}, new_count={ref.new_count})"
                         )
+                        resolved.append(ref)
+                    continue
+                source = by_id.get(hunk_id)
+                if source is None:
+                    warnings.append(
+                        f"Unknown hunk ID '{hunk_id}' — not in parsed diff"
+                    )
+                    resolved.append(ref)
+                    continue
+                # Copy content/metadata into a fresh Hunk so thread edits don't
+                # mutate the shared parsed instance.
+                resolved.append(
+                    Hunk(
+                        id=source.id,
+                        file_path=source.file_path,
+                        old_start=source.old_start,
+                        old_count=source.old_count,
+                        new_start=source.new_start,
+                        new_count=source.new_count,
+                        content=source.content,
+                        context_before=source.context_before,
+                        context_after=source.context_after,
+                        language=source.language,
+                    )
+                )
+            step.hunks = resolved
 
     return walkthrough, warnings
 
 
-def _build_exact_index(hunks: list[Hunk]) -> dict[tuple[str, int, int], Hunk]:
-    index: dict[tuple[str, int, int], Hunk] = {}
-    for h in hunks:
-        index[(h.file_path, h.new_start, h.new_count)] = h
-    return index
+def _match_by_position(ref: Hunk, parsed_hunks: list[Hunk]) -> Hunk | None:
+    """Fallback for legacy dict-shaped refs without an ID."""
+    for h in parsed_hunks:
+        if (
+            h.file_path == ref.file_path
+            and h.new_start == ref.new_start
+            and h.new_count == ref.new_count
+        ):
+            return h
+    return None
 
 
-def _build_fuzzy_index(hunks: list[Hunk]) -> dict[tuple[str, int], list[Hunk]]:
-    index: dict[tuple[str, int], list[Hunk]] = {}
-    for h in hunks:
-        key = (h.file_path, h.new_start)
-        index.setdefault(key, []).append(h)
-    return index
-
-
-def _closest_by_count(candidates: list[Hunk], target_count: int) -> Hunk:
-    return min(candidates, key=lambda h: abs(h.new_count - target_count))
+def orphaned_hunks(
+    walkthrough: Walkthrough, parsed_hunks: list[Hunk]
+) -> list[Hunk]:
+    """Return parsed hunks whose IDs are not referenced by any thread step."""
+    covered: set[str] = set()
+    for thread in walkthrough.threads:
+        for step in thread.steps:
+            for h in step.hunks:
+                if h.id:
+                    covered.add(h.id)
+    return [h for h in parsed_hunks if h.id and h.id not in covered]

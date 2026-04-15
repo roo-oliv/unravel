@@ -47,6 +47,10 @@ class TestParseDiff:
         first = hunks[0]
         assert "+" in first.content or "-" in first.content
 
+    def test_hunks_have_sequential_ids(self, simple_diff: str):
+        hunks = parse_diff(simple_diff)
+        assert [h.id for h in hunks] == [f"H{i + 1}" for i in range(len(hunks))]
+
     def test_binary_diff(self):
         binary_diff = """\
 diff --git a/image.png b/image.png

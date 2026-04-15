@@ -42,6 +42,9 @@ def _render_timeline(state: WalkthroughState) -> Group:
     title_line = Text(justify="center")
     if state.is_overview:
         title_line.append("Overview", style="bold cyan")
+    elif state.is_full_diff:
+        title_line.append("Full diff", style="bold cyan")
+        title_line.append("  (reference)", style="dim")
     else:
         assert state.current_thread is not None
         title_line.append(state.current_thread.title, style="bold magenta")
@@ -56,6 +59,10 @@ def _render_timeline(state: WalkthroughState) -> Group:
     status = Text(justify="center")
     if state.is_overview:
         status.append("press → to start", style="dim italic")
+    elif state.is_full_diff:
+        status.append(
+            "ground-truth view of every hunk", style="dim italic"
+        )
     else:
         rows = state.current_rows()
         if rows:

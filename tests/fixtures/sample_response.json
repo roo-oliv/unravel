@@ -12,28 +12,12 @@
         {
           "order": 1,
           "narration": "Add a guard clause to TokenValidator.__init__ so that misconfiguration is caught at startup rather than producing cryptic errors at request time.",
-          "hunks": [
-            {
-              "file_path": "src/auth.py",
-              "old_start": 3,
-              "old_count": 6,
-              "new_start": 3,
-              "new_count": 8
-            }
-          ]
+          "hunks": ["H1"]
         },
         {
           "order": 2,
           "narration": "Convert jwt decode exceptions into typed AuthError exceptions, preserving the specific failure reason (expired vs invalid) instead of collapsing both into None.",
-          "hunks": [
-            {
-              "file_path": "src/auth.py",
-              "old_start": 12,
-              "old_count": 5,
-              "new_start": 14,
-              "new_count": 7
-            }
-          ]
+          "hunks": ["H2"]
         }
       ]
     },
@@ -47,15 +31,7 @@
         {
           "order": 1,
           "narration": "Wrap TokenValidator construction in a try/except to translate the new ValueError into a ConfigError, and update request handling to catch AuthError exceptions instead of checking for None.",
-          "hunks": [
-            {
-              "file_path": "src/middleware.py",
-              "old_start": 4,
-              "old_count": 11,
-              "new_start": 4,
-              "new_count": 16
-            }
-          ]
+          "hunks": ["H3"]
         }
       ]
     }

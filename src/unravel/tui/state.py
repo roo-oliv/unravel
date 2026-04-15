@@ -22,11 +22,14 @@ class Row:
 class WalkthroughState:
     """Manages page-based navigation through a walkthrough.
 
-    Pages are: [overview, thread_1, thread_2, ..., thread_N].
-    Overview is page 0; thread i is page i (1-indexed).
+    Pages are: [overview, thread_1, thread_2, ..., thread_N, full_diff?].
+    Overview is page 0; thread i is page i (1-indexed). The full-diff page
+    is the last page when ``all_hunks`` is provided — a ground-truth reference
+    showing every parsed hunk, regardless of thread splitting.
     """
 
     walkthrough: Walkthrough
+    all_hunks: list[Hunk] = field(default_factory=list)
     ordered_threads: list[Thread] = field(init=False)
 
     # Navigation
@@ -48,8 +51,13 @@ class WalkthroughState:
     # ------- Pages -------
 
     @property
+    def has_full_diff(self) -> bool:
+        return bool(self.all_hunks)
+
+    @property
     def page_count(self) -> int:
-        return 1 + len(self.ordered_threads)
+        extra = 1 if self.has_full_diff else 0
+        return 1 + len(self.ordered_threads) + extra
 
     @property
     def thread_count(self) -> int:
@@ -60,15 +68,24 @@ class WalkthroughState:
         return self.page_index == 0
 
     @property
+    def is_full_diff(self) -> bool:
+        return (
+            self.has_full_diff
+            and self.page_index == 1 + len(self.ordered_threads)
+        )
+
+    @property
     def current_thread(self) -> Thread | None:
-        if self.is_overview:
+        if self.is_overview or self.is_full_diff:
             return None
         return self.ordered_threads[self.page_index - 1]
 
     @property
     def current_thread_index(self) -> int | None:
-        """Thread index (0-based) or None when on overview page."""
-        return None if self.is_overview else self.page_index - 1
+        """Thread index (0-based) or None when on overview/full-diff page."""
+        if self.is_overview or self.is_full_diff:
+            return None
+        return self.page_index - 1
 
     def page_status(self, page_index: int) -> PageStatus:
         if page_index == self.page_index:
@@ -80,7 +97,7 @@ class WalkthroughState:
     # ------- Rows -------
 
     def current_rows(self) -> list[Row]:
-        if self.is_overview:
+        if self.is_overview or self.is_full_diff:
             return []
         thread = self.current_thread
         assert thread is not None
@@ -146,7 +163,7 @@ class WalkthroughState:
 
     def toggle_expand(self) -> bool:
         """Toggle expansion of the current row. Returns True if a row was toggled."""
-        if self.is_overview:
+        if self.is_overview or self.is_full_diff:
             return False
         key = (self.page_index, self.row_index)
         if key in self.expanded_rows:
@@ -171,7 +188,7 @@ class WalkthroughState:
 
     @property
     def progress(self) -> tuple[int, int]:
-        """Returns (current_thread_1based, total_threads), 0 when on overview."""
-        if self.is_overview:
+        """Returns (current_thread_1based, total_threads), 0 on non-thread pages."""
+        if self.is_overview or self.is_full_diff:
             return (0, self.thread_count)
         return (self.page_index, self.thread_count)

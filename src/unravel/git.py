@@ -116,4 +116,6 @@ def parse_diff(raw_diff: str) -> list[Hunk]:
                     language=language,
                 )
             )
+    for i, hunk in enumerate(hunks, 1):
+        hunk.id = f"H{i}"
     return hunks

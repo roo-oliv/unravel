@@ -191,3 +191,33 @@ class TestCurrentHunk:
         hunk = state.current_hunk()
         assert hunk is not None
         assert hunk.file_path == "file0_0_0.py"
+
+
+class TestFullDiffPage:
+    def test_no_full_diff_when_hunks_empty(self):
+        state = WalkthroughState(_make_walkthrough(2))
+        assert state.page_count == 3  # overview + 2 threads
+        assert not state.has_full_diff
+
+    def test_full_diff_appended_when_hunks_provided(self):
+        all_hunks = [Hunk(id="H1", file_path="a.py", new_start=1, new_count=3)]
+        state = WalkthroughState(_make_walkthrough(2), all_hunks=all_hunks)
+        assert state.page_count == 4  # overview + 2 threads + full diff
+        assert state.has_full_diff
+
+    def test_full_diff_is_last_page(self):
+        all_hunks = [Hunk(id="H1", file_path="a.py", new_start=1, new_count=3)]
+        state = WalkthroughState(_make_walkthrough(1), all_hunks=all_hunks)
+        state.next_page()  # thread
+        state.next_page()  # full diff
+        assert state.is_full_diff
+        assert state.current_thread is None
+        assert state.current_rows() == []
+        assert not state.next_page()
+
+    def test_full_diff_disables_toggle_expand(self):
+        all_hunks = [Hunk(id="H1", file_path="a.py", new_start=1, new_count=3)]
+        state = WalkthroughState(_make_walkthrough(1), all_hunks=all_hunks)
+        state.next_page()
+        state.next_page()  # on full diff
+        assert not state.toggle_expand()
