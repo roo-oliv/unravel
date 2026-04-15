@@ -64,7 +64,7 @@ def _render_timeline(state: WalkthroughState) -> Group:
         if rows:
             status.append(
                 f"hunk {state.row_index + 1}/{len(rows)} — "
-                "↑↓ focus, Enter to expand",
+                "Tab/Shift+Tab focus, Enter to expand",
                 style="dim italic",
             )
         else:
@@ -75,7 +75,8 @@ def _render_timeline(state: WalkthroughState) -> Group:
         rows = state.current_rows()
         if rows:
             status.append(
-                f"row {state.row_index + 1}/{len(rows)} — ↑↓ focus, Enter to expand",
+                f"row {state.row_index + 1}/{len(rows)} — "
+                "Tab/Shift+Tab focus, Enter to expand",
                 style="dim italic",
             )
 

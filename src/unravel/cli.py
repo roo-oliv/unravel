@@ -239,7 +239,13 @@ def _format_age(cached_at: float) -> str:
 
 def _format_completion(metadata: dict) -> str:
     """Build the "Analysis complete" line with timing and token counts."""
-    parts = [f"Analysis complete in {metadata.get('elapsed_seconds', 0)}s"]
+    elapsed = metadata.get("elapsed_seconds", 0)
+    provider = metadata.get("provider", "")
+    model = metadata.get("model", "")
+    head = f"Analysis complete in {elapsed}s"
+    if provider and model:
+        head += f" ({provider}/{model})"
+    parts = [head]
     thinking = metadata.get("thinking_tokens", 0)
     output = metadata.get("output_tokens", 0)
     input_tokens = metadata.get("input_tokens", 0)

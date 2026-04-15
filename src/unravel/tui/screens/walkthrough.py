@@ -34,8 +34,6 @@ class WalkthroughScreen(Screen):
     BINDINGS = [
         Binding("right,l", "next_page", "Next thread", show=False),
         Binding("left,h", "prev_page", "Previous thread", show=False),
-        Binding("down,j", "down", "Scroll/next row", show=False, priority=True),
-        Binding("up,k", "up", "Scroll/prev row", show=False, priority=True),
         Binding("tab", "next_row", "Next row", show=False, priority=True),
         Binding(
             "shift+tab", "prev_row", "Previous row", show=False, priority=True
@@ -78,28 +76,18 @@ class WalkthroughScreen(Screen):
             self._refresh_all(scroll_home=True)
 
     def action_next_row(self) -> None:
+        """Tab: focus the next row, or advance to the next page at the end."""
         if self.state.next_row():
             self._refresh_all()
+            return
+        self.action_next_page()
 
     def action_prev_row(self) -> None:
+        """Shift+Tab: focus the previous row, or go to the previous page at the start."""
         if self.state.prev_row():
             self._refresh_all()
-
-    def action_down(self) -> None:
-        """↓/j: scroll the page if not at the bottom, otherwise focus the next row."""
-        scroll = self.query_one("#page-scroll", VerticalScroll)
-        if scroll.scroll_y < scroll.max_scroll_y:
-            scroll.scroll_down(animate=False)
             return
-        self.action_next_row()
-
-    def action_up(self) -> None:
-        """↑/k: scroll the page if not at the top, otherwise focus the previous row."""
-        scroll = self.query_one("#page-scroll", VerticalScroll)
-        if scroll.scroll_y > 0:
-            scroll.scroll_up(animate=False)
-            return
-        self.action_prev_row()
+        self.action_prev_page()
 
     def action_toggle_expand(self) -> None:
         if self.state.is_overview:
