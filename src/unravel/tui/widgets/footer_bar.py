@@ -33,6 +33,8 @@ class FooterBar(Static):
             hints.append("expand   ")
             hints.append(" e/c ", style="bold")
             hints.append("all expand/collapse   ")
+        hints.append(" , ", style="bold")
+        hints.append("settings   ")
         hints.append(" ? ", style="bold")
         hints.append("help   ")
         hints.append(" q ", style="bold")

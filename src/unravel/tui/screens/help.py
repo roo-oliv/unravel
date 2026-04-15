@@ -24,6 +24,7 @@ HELP_TEXT = """\
   [bold]c[/bold]               Collapse all rows on this thread
 
 [bold cyan]General[/bold cyan]
+  [bold],[/bold]               Settings (wrap mode, syntax highlight, …)
   [bold]?[/bold]               This help screen
   [bold]q[/bold]               Quit
 """

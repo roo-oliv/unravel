@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from unravel.config import DiffDisplayConfig
 from unravel.models import Hunk, SourceInfo, Thread, ThreadStep, Walkthrough
 
 PageStatus = Literal["completed", "current", "unvisited"]
@@ -31,6 +32,7 @@ class WalkthroughState:
     walkthrough: Walkthrough
     all_hunks: list[Hunk] = field(default_factory=list)
     source_info: SourceInfo | None = None
+    diff_cfg: DiffDisplayConfig = field(default_factory=DiffDisplayConfig)
     ordered_threads: list[Thread] = field(init=False)
 
     # Navigation

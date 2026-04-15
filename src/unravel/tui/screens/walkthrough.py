@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import VerticalScroll
+from textual.containers import ScrollableContainer
 from textual.screen import Screen
 from textual.widgets import Static
 
@@ -23,11 +23,21 @@ class WalkthroughScreen(Screen):
     #page-scroll {
         height: 1fr;
         padding: 1 2;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    #page-scroll.scroll-mode {
+        overflow-x: auto;
     }
 
     #page-content {
         width: 100%;
         height: auto;
+    }
+
+    #page-scroll.scroll-mode #page-content {
+        width: auto;
     }
     """
 
@@ -41,6 +51,7 @@ class WalkthroughScreen(Screen):
         Binding("enter,space", "toggle_expand", "Expand/collapse", show=False),
         Binding("e", "expand_all", "Expand all", show=False),
         Binding("c", "collapse_all", "Collapse all", show=False),
+        Binding("comma", "show_settings", "Settings", show=False),
         Binding("question_mark", "show_help", "Help", show=False),
         Binding("q", "quit_app", "Quit", show=False),
     ]
@@ -51,21 +62,27 @@ class WalkthroughScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Timeline(id="timeline")
-        with VerticalScroll(id="page-scroll"):
+        with ScrollableContainer(id="page-scroll"):
             yield Static(id="page-content")
         yield FooterBar(id="footer")
 
     def on_mount(self) -> None:
+        self._apply_wrap_mode()
         self._refresh_all()
+
+    def _apply_wrap_mode(self) -> None:
+        """Toggle the ``scroll-mode`` CSS class based on the current setting."""
+        scroller = self.query_one("#page-scroll", ScrollableContainer)
+        scroller.set_class(self.state.diff_cfg.wrap_mode == "scroll", "scroll-mode")
 
     def _refresh_all(self, scroll_home: bool = False) -> None:
         self.query_one(Timeline).update_state(self.state)
         self.query_one("#page-content", Static).update(render_page(self.state))
         self.query_one(FooterBar).update_state(self.state)
         if scroll_home:
-            self.query_one("#page-scroll", VerticalScroll).scroll_home(
-                animate=False
-            )
+            self.query_one(
+                "#page-scroll", ScrollableContainer
+            ).scroll_home(animate=False)
 
     def action_next_page(self) -> None:
         if self.state.next_page():
@@ -106,6 +123,16 @@ class WalkthroughScreen(Screen):
         if not self.state.is_overview:
             self.state.collapse_all_on_page()
             self._refresh_all()
+
+    def action_show_settings(self) -> None:
+        from unravel.tui.screens.settings import SettingsScreen
+
+        def on_close(_result: object | None) -> None:
+            # Settings may have changed; reapply layout mode and redraw.
+            self._apply_wrap_mode()
+            self._refresh_all()
+
+        self.app.push_screen(SettingsScreen(self.state.diff_cfg), on_close)
 
     def action_show_help(self) -> None:
         from unravel.tui.screens.help import HelpScreen

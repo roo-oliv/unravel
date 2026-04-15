@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from rich.console import Group, RenderableType
 from rich.panel import Panel
 from rich.syntax import Syntax
+from rich.table import Table
 from rich.text import Text
 
-from unravel.models import Hunk, Thread
+from unravel.config import DiffDisplayConfig
+from unravel.models import EXTENSION_LANGUAGES, Hunk, Thread
 from unravel.tui.state import WalkthroughState
+
+# Background tints for added / removed diff lines. Dark hues that sit on top
+# of Monokai-like themes without clashing with foreground syntax colors.
+_ADD_BG = "#163a1e"
+_DEL_BG = "#3a161a"
 
 CODE_STYLE = "bold cyan"
 
@@ -212,7 +220,7 @@ def _render_thread_rows(
             parts.append(file_line)
 
             if is_expanded:
-                parts.append(_render_hunk_diff(hunk))
+                parts.append(_render_hunk_diff(hunk, state.diff_cfg))
 
             row_cursor += 1
 
@@ -224,25 +232,186 @@ def _render_thread_rows(
     return parts
 
 
-def _render_hunk_diff(hunk) -> RenderableType:
-    """Render a single hunk's diff content."""
+def _resolve_language(hunk: Hunk) -> str:
+    """Pick a lexer name for a hunk (explicit > extension lookup > 'text')."""
+    if hunk.language:
+        return hunk.language
+    suffix = Path(hunk.file_path).suffix
+    return EXTENSION_LANGUAGES.get(suffix, "text")
+
+
+def _render_hunk_diff(hunk: Hunk, diff_cfg: DiffDisplayConfig) -> RenderableType:
+    """Render a single hunk's diff content with optional language-aware highlights.
+
+    The output is a Table with (old_no | new_no | sign | code) columns, where
+    added/removed lines are tinted green/red across the entire row. Lines are
+    either wrapped to the column width or allowed to extend off-screen (and
+    revealed via horizontal scrolling) depending on ``diff_cfg.wrap_mode``.
+    """
     if hunk.content == "[binary file]":
         return Text("      (binary file)", style="dim")
     if not hunk.content:
-        return Text(
-            "      (no diff content available)", style="dim italic"
-        )
-    return Panel(
-        Syntax(
-            hunk.content,
-            "diff",
-            theme="monokai",
-            line_numbers=False,
-            padding=(0, 1),
-        ),
-        border_style="dim",
-        padding=(0, 1),
+        return Text("      (no diff content available)", style="dim italic")
+
+    language = _resolve_language(hunk)
+    # A dummy Syntax instance is enough to borrow its Pygments lexer +
+    # theme-aware token colorizer via .highlight(). We never render the
+    # Syntax itself — only per-line Text objects.
+    syntax = (
+        Syntax("", language, theme=diff_cfg.theme, tab_size=4)
+        if diff_cfg.syntax_highlight
+        else None
     )
+
+    table = Table(
+        show_header=False,
+        box=None,
+        padding=(0, 1),
+        expand=(diff_cfg.wrap_mode == "wrap"),
+        show_edge=False,
+        pad_edge=False,
+    )
+    if diff_cfg.show_line_numbers:
+        table.add_column(
+            "old", justify="right", no_wrap=True, style="dim", width=5
+        )
+        table.add_column(
+            "new", justify="right", no_wrap=True, style="dim", width=5
+        )
+    table.add_column("sign", no_wrap=True, width=1)
+    wrap_code = diff_cfg.wrap_mode == "wrap"
+    table.add_column(
+        "code",
+        ratio=1 if wrap_code else None,
+        no_wrap=not wrap_code,
+        overflow="fold" if wrap_code else "ignore",
+    )
+
+    old_no = hunk.old_start
+    new_no = hunk.new_start
+
+    for raw in hunk.content.splitlines():
+        if not raw:
+            # Empty line — treat as a context line with no content.
+            _add_diff_row(
+                table,
+                diff_cfg,
+                tint=None,
+                old=old_no,
+                new=new_no,
+                sign=" ",
+                code_text=Text(""),
+            )
+            old_no += 1
+            new_no += 1
+            continue
+
+        if raw.startswith("\\"):
+            # `\ No newline at end of file` annotation
+            span = Text(raw, style="dim italic")
+            if diff_cfg.show_line_numbers:
+                table.add_row("", "", "", span)
+            else:
+                table.add_row("", span)
+            continue
+
+        sign, body = raw[0], raw[1:]
+        code_text = _highlight_line(syntax, body)
+
+        if sign == "+":
+            _add_diff_row(
+                table,
+                diff_cfg,
+                tint=_ADD_BG,
+                old=None,
+                new=new_no,
+                sign="+",
+                code_text=code_text,
+                sign_style="bold green",
+            )
+            new_no += 1
+        elif sign == "-":
+            _add_diff_row(
+                table,
+                diff_cfg,
+                tint=_DEL_BG,
+                old=old_no,
+                new=None,
+                sign="-",
+                code_text=code_text,
+                sign_style="bold red",
+            )
+            old_no += 1
+        else:
+            _add_diff_row(
+                table,
+                diff_cfg,
+                tint=None,
+                old=old_no,
+                new=new_no,
+                sign=" ",
+                code_text=code_text,
+            )
+            old_no += 1
+            new_no += 1
+
+    return Panel(table, border_style="dim", padding=(0, 1))
+
+
+def _highlight_line(syntax: Syntax | None, body: str) -> Text:
+    """Return a Text for the given line body, optionally language-highlighted."""
+    if syntax is None:
+        return Text(body)
+    highlighted = syntax.highlight(body)
+    # Pygments re-adds a trailing newline; strip it so it doesn't cause an
+    # extra blank row in the Table cell.
+    if highlighted.plain.endswith("\n"):
+        highlighted = highlighted[:-1]
+    # Let the enclosing Table column decide wrap/no-wrap behavior per the
+    # user's diff_cfg.wrap_mode. Syntax.highlight marks Text as no_wrap=True
+    # by default, which would override our column settings.
+    highlighted.no_wrap = False
+    return highlighted
+
+
+def _add_diff_row(
+    table: Table,
+    diff_cfg: DiffDisplayConfig,
+    *,
+    tint: str | None,
+    old: int | None,
+    new: int | None,
+    sign: str,
+    code_text: Text,
+    sign_style: str = "dim",
+) -> None:
+    """Add a diff row, applying ``tint`` as a background across the whole row."""
+    if tint is not None:
+        bg_style = f"on {tint}"
+        # Override background on the already-highlighted code while preserving
+        # the per-token foreground colors produced by Syntax.highlight.
+        code_text.stylize(bg_style)
+        num_style = f"dim {bg_style}"
+        sign_cell_style = f"{sign_style} {bg_style}"
+    else:
+        num_style = "dim"
+        sign_cell_style = sign_style
+
+    old_cell = "" if old is None else str(old)
+    new_cell = "" if new is None else str(new)
+
+    if diff_cfg.show_line_numbers:
+        table.add_row(
+            Text(old_cell, style=num_style),
+            Text(new_cell, style=num_style),
+            Text(sign, style=sign_cell_style),
+            code_text,
+        )
+    else:
+        table.add_row(
+            Text(sign, style=sign_cell_style),
+            code_text,
+        )
 
 
 def _render_full_diff(state: WalkthroughState) -> RenderableType:
@@ -313,7 +482,7 @@ def _render_full_diff(state: WalkthroughState) -> RenderableType:
             parts.append(row_line)
 
             if is_expanded:
-                parts.append(_render_hunk_diff(hunk))
+                parts.append(_render_hunk_diff(hunk, state.diff_cfg))
 
         parts.append(Text(""))
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 from datetime import datetime
 from typing import Annotated
 
@@ -9,7 +11,13 @@ import typer
 from rich.console import Console
 
 from unravel import __version__, cache
-from unravel.config import load_config
+from unravel.config import (
+    config_path,
+    get_setting,
+    load_config,
+    render_config_toml,
+    update_setting,
+)
 from unravel.git import (
     UnravelGitError,
     build_pr_source_info,
@@ -35,6 +43,12 @@ cache_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(cache_app, name="cache")
+conf_app = typer.Typer(
+    name="conf",
+    help="View and edit persistent Unravel settings.",
+    invoke_without_command=True,
+)
+app.add_typer(conf_app, name="conf")
 console = Console(stderr=True)
 stdout = Console()
 
@@ -222,6 +236,66 @@ def cache_list() -> None:
     stdout.print(f"[dim]Cache directory: {cache.cache_dir()}[/dim]")
 
 
+@conf_app.callback()
+def conf_root(ctx: typer.Context) -> None:
+    """Show the current persistent config when no subcommand is given."""
+    if ctx.invoked_subcommand is not None:
+        return
+    # markup=False so TOML section headers like [diff] survive Rich rendering.
+    stdout.print(render_config_toml().rstrip(), markup=False, highlight=False)
+    stdout.print(f"[dim]Config file: {config_path()}[/dim]")
+
+
+@conf_app.command("get")
+def conf_get(
+    key: Annotated[str, typer.Argument(help="Dotted key, e.g. diff.wrap_mode")],
+) -> None:
+    """Print a single setting's value."""
+    try:
+        value = get_setting(key)
+    except ValueError as exc:
+        console.print("[red]Error:[/red] " + str(exc).replace("[", r"\["))
+        raise typer.Exit(1) from exc
+    stdout.print(value)
+
+
+@conf_app.command("set")
+def conf_set(
+    key: Annotated[str, typer.Argument(help="Dotted key, e.g. diff.wrap_mode")],
+    value: Annotated[str, typer.Argument(help="New value (string, bool, or int)")],
+) -> None:
+    """Update a setting and persist it to the config file."""
+    try:
+        coerced = update_setting(key, value)
+    except ValueError as exc:
+        console.print("[red]Error:[/red] " + str(exc).replace("[", r"\["))
+        raise typer.Exit(1) from exc
+    stdout.print(f"[dim]{key} =[/dim] {coerced!r}")
+    stdout.print(f"[dim]Saved to {config_path()}[/dim]")
+
+
+@conf_app.command("path")
+def conf_path() -> None:
+    """Print the absolute path to the config file."""
+    stdout.print(str(config_path()))
+
+
+@conf_app.command("edit")
+def conf_edit() -> None:
+    """Open the config file in $EDITOR (creates it with defaults if missing)."""
+    target = config_path()
+    if not target.exists():
+        # Materialize the defaults so the user has something to edit.
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(render_config_toml())
+    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL") or "vi"
+    try:
+        subprocess.run([editor, str(target)], check=True)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        console.print(f"[red]Could not launch editor '{editor}':[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+
 def _format_age(cached_at: float) -> str:
     """Return a human-friendly "N units ago" string for a unix timestamp."""
     if cached_at <= 0:
@@ -382,6 +456,7 @@ def _run(
                 walkthrough=walkthrough,
                 all_hunks=hunks,
                 source_info=source_info,
+                diff_cfg=config.diff,
             )
             app.run()
 
