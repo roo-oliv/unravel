@@ -6,8 +6,44 @@ Instead of reviewing a diff file-by-file, Unravel groups changes by *why* they w
 
 ## Installation
 
+Pick whichever channel fits your setup — they all install the same package.
+
+### uv (recommended)
+
+```bash
+uv tool install unravel-review
+```
+
+### pipx
+
+```bash
+pipx install unravel-review
+```
+
+### pip
+
 ```bash
 pip install unravel-review
+```
+
+### Homebrew
+
+```bash
+brew tap roo-oliv/unravel
+brew install unravel
+```
+
+### One-liner (auto-detects uv/pipx)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/roo-oliv/unravel/main/install.sh | bash
+```
+
+### Docker
+
+```bash
+docker run --rm -v "$(pwd):/repo" -e ANTHROPIC_API_KEY \
+  ghcr.io/roo-oliv/unravel diff HEAD~1
 ```
 
 ## Quick Start
@@ -84,18 +120,14 @@ Planned: OpenAI, Gemini, and more. The provider abstraction is ready — contrib
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full local setup, testing conventions, code style, and release process. TL;DR:
+
 ```bash
 git clone https://github.com/roo-oliv/unravel.git
 cd unravel
-uv venv --python 3.12 .venv
-source .venv/bin/activate
-uv pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Lint
-ruff check src/ tests/
+uv sync --extra dev
+uv run pytest
+uv run ruff check .
 ```
 
 ## License
