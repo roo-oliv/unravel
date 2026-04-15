@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "unravel-review"
-version = "0.2.0"
+dynamic = ["version"]
 description = "AI-powered CLI that decomposes PR diffs into causal threads for human code reviewers"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -41,6 +41,12 @@ dev = [
 
 [project.scripts]
 unravel = "unravel.cli:app"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+local_scheme = "no-local-version"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/unravel"]
