@@ -483,7 +483,8 @@ def _run(
             console.print(f"[yellow]Warning:[/yellow] {w}")
 
         if github_comment:
-            stdout.print(render_github_comment(walkthrough))
+            # Bypass Rich to avoid line-wrapping the long base64 payload.
+            sys.stdout.write(render_github_comment(walkthrough) + "\n")
         elif json_output:
             stdout.print(render_json(walkthrough))
         elif markdown_output:
