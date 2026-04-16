@@ -10,9 +10,11 @@ from unravel.renderer import (
     COMMENT_MARKER_DATA_PREFIX,
     COMMENT_MARKER_END,
     COMMENT_MARKER_START,
+    UNRAVEL_INSTALL_URL,
     _format_hunk_ref,
     _github_diff_anchor,
     _hunk_line_range,
+    _pr_cli_ref,
     render_github_comment,
     render_markdown,
 )
@@ -51,6 +53,23 @@ def test_render_github_comment_markers(sample_walkthrough: Walkthrough) -> None:
     assert COMMENT_MARKER_DATA_PREFIX in comment
 
 
+def test_render_github_comment_cta(sample_walkthrough: Walkthrough) -> None:
+    comment = render_github_comment(
+        sample_walkthrough, pr_number=42, repo_nwo="acme/repo"
+    )
+    assert "Review these changes locally with `unravel pr acme/repo#42`" in comment
+
+
+def test_render_github_comment_cta_no_repo(sample_walkthrough: Walkthrough) -> None:
+    comment = render_github_comment(sample_walkthrough, pr_number=7)
+    assert "Review these changes locally with `unravel pr 7`" in comment
+
+
+def test_render_github_comment_disclaimer(sample_walkthrough: Walkthrough) -> None:
+    comment = render_github_comment(sample_walkthrough)
+    assert f"[install and run unravel locally]({UNRAVEL_INSTALL_URL})" in comment
+
+
 def test_render_github_comment_collapsible(sample_walkthrough: Walkthrough) -> None:
     comment = render_github_comment(sample_walkthrough)
 
@@ -62,7 +81,7 @@ def test_render_github_comment_collapsible(sample_walkthrough: Walkthrough) -> N
 def test_render_github_comment_header(sample_walkthrough: Walkthrough) -> None:
     comment = render_github_comment(sample_walkthrough)
 
-    assert "### Unravel \u2014 2 threads across" in comment
+    assert "### Changes unravelled in 2 threads across" in comment
 
 
 def test_render_github_comment_roundtrip(sample_walkthrough: Walkthrough) -> None:
@@ -182,3 +201,18 @@ def test_render_markdown_with_pr_links(sample_walkthrough: Walkthrough, simple_d
 
     assert "https://github.com/test/repo/pull/1/files#diff-" in md
     assert ":L" in md  # line range in the label
+
+
+# --- PR CLI ref tests ---
+
+
+def test_pr_cli_ref_with_repo() -> None:
+    assert _pr_cli_ref(42, "acme/repo") == "unravel pr acme/repo#42"
+
+
+def test_pr_cli_ref_number_only() -> None:
+    assert _pr_cli_ref(42, None) == "unravel pr 42"
+
+
+def test_pr_cli_ref_no_number() -> None:
+    assert _pr_cli_ref(None, None) == "unravel pr <number>"

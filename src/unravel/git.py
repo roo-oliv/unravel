@@ -46,18 +46,35 @@ def get_diff_from_range(range_spec: str, *, staged: bool = False) -> str:
     return result.stdout
 
 
-def get_diff_from_pr(pr_number: int, *, remote: str = "origin") -> str:
+def _resolve_repo(repo: str | None, remote: str) -> str:
+    """Return the repo identifier for ``gh --repo``.
+
+    If *repo* is given (e.g. ``owner/repo``), use it directly.
+    Otherwise fall back to the URL of the named git remote.
+    """
+    if repo:
+        return repo
+    return _get_remote_url(remote)
+
+
+def get_diff_from_pr(
+    pr_number: int, *, remote: str = "origin", repo: str | None = None
+) -> str:
     if not shutil.which("gh"):
         raise UnravelGitError(
             "GitHub CLI (gh) is required for PR diffs. Install it from https://cli.github.com"
         )
-    result = _run_git(["gh", "pr", "diff", str(pr_number), "--repo", _get_remote_url(remote)])
+    result = _run_git([
+        "gh", "pr", "diff", str(pr_number), "--repo", _resolve_repo(repo, remote),
+    ])
     if not result.stdout.strip():
         raise UnravelGitError(f"No diff output for PR #{pr_number}")
     return result.stdout
 
 
-def get_pr_metadata(pr_number: int, *, remote: str = "origin") -> dict:
+def get_pr_metadata(
+    pr_number: int, *, remote: str = "origin", repo: str | None = None
+) -> dict:
     if not shutil.which("gh"):
         raise UnravelGitError(
             "GitHub CLI (gh) is required for PR metadata. Install it from https://cli.github.com"
@@ -68,7 +85,7 @@ def get_pr_metadata(pr_number: int, *, remote: str = "origin") -> dict:
         "view",
         str(pr_number),
         "--repo",
-        _get_remote_url(remote),
+        _resolve_repo(repo, remote),
         "--json",
         "title,author,headRefName,baseRefName,body",
     ])
@@ -87,8 +104,19 @@ _REMOTE_NWO_RE = re.compile(
 )
 
 
-def get_repo_nwo(remote: str = "origin") -> str | None:
-    """Return the ``owner/repo`` for ``remote``, or ``None`` if unavailable."""
+def get_repo_nwo(remote: str = "origin", repo: str | None = None) -> str | None:
+    """Return the ``owner/repo`` for *repo* or *remote*.
+
+    If *repo* is already in ``owner/repo`` form, return it directly.
+    Otherwise resolve the named git remote.
+    """
+    if repo:
+        # Already owner/repo form (e.g. "roo-oliv/unravel")
+        if "/" in repo and not repo.startswith(("http", "git@")):
+            return repo
+        # It's a URL; parse it.
+        match = _REMOTE_NWO_RE.search(repo)
+        return f"{match.group(1)}/{match.group(2)}" if match else None
     try:
         url = _get_remote_url(remote)
     except UnravelGitError:
@@ -179,6 +207,7 @@ def build_pr_source_info(
     metadata: dict | None,
     *,
     remote: str = "origin",
+    repo: str | None = None,
 ) -> SourceInfo:
     """Build a SourceInfo for a PR source (number + optional title)."""
     title = None
@@ -191,7 +220,7 @@ def build_pr_source_info(
     return SourceInfo(
         kind="pr",
         label=f"#{pr_number}",
-        repo=get_repo_nwo(remote),
+        repo=get_repo_nwo(remote, repo),
         detail=title,
     )
 

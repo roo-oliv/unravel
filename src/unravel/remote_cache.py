@@ -23,9 +23,10 @@ def fetch_from_pr_comment(
     raw_diff: str,
     *,
     remote: str = "origin",
+    repo: str | None = None,
 ) -> Walkthrough | None:
     """Return a cached walkthrough from the PR comment, or ``None`` on miss."""
-    nwo = get_repo_nwo(remote)
+    nwo = repo or get_repo_nwo(remote)
     if not nwo:
         return None
     if not shutil.which("gh"):

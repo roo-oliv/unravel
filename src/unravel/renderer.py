@@ -202,24 +202,40 @@ def render_markdown(
     return "\n".join(parts)
 
 
+UNRAVEL_INSTALL_URL = "https://github.com/roo-oliv/unravel#installation"
+
+
+def _pr_cli_ref(pr_number: int | None, repo_nwo: str | None) -> str:
+    """Build the ``unravel pr ...`` invocation shown in the comment CTA."""
+    if pr_number is None:
+        return "unravel pr <number>"
+    if repo_nwo:
+        return f"unravel pr {repo_nwo}#{pr_number}"
+    return f"unravel pr {pr_number}"
+
+
 def render_github_comment(
     walkthrough: Walkthrough,
     *,
     pr_files_url: str | None = None,
+    pr_number: int | None = None,
+    repo_nwo: str | None = None,
 ) -> str:
     """Render the full GitHub PR comment body with visible summary and hidden cache.
 
-    The comment has three parts:
+    The comment has four parts:
     1. A header with thread/file counts
-    2. A collapsible ``<details>`` block with the full markdown walkthrough
-    3. A base64-encoded JSON payload hidden inside an HTML comment
+    2. A CTA suggesting the CLI for a better review experience
+    3. A collapsible ``<details>`` block with the full markdown walkthrough
+    4. A base64-encoded JSON payload hidden inside an HTML comment
     """
     threads = walkthrough.threads
     file_count = _thread_file_count(walkthrough)
 
     t_word = "thread" if len(threads) == 1 else "threads"
     f_word = "file" if file_count == 1 else "files"
-    summary_line = f"{len(threads)} {t_word} across {file_count} {f_word}"
+
+    cli_ref = _pr_cli_ref(pr_number, repo_nwo)
 
     md_body = render_markdown(walkthrough, pr_files_url=pr_files_url)
     json_payload = json.dumps(walkthrough.to_dict())
@@ -228,10 +244,17 @@ def render_github_comment(
     parts = [
         COMMENT_MARKER_START,
         "",
-        f"### Unravel \u2014 {summary_line}",
+        f"### Changes unravelled in {len(threads)} {t_word} across {file_count} {f_word}",
+        "",
+        f"Review these changes locally with `{cli_ref}`",
         "",
         "<details>",
         "<summary>Click to expand walkthrough</summary>",
+        "",
+        (
+            "For a better review experience, "
+            f"[install and run unravel locally]({UNRAVEL_INSTALL_URL})"
+        ),
         "",
         md_body,
         "</details>",

@@ -35,11 +35,12 @@ runs:
     - name: Run analysis and generate comment
       shell: bash
       run: |
-        args=(pr "$PR_NUMBER" --github-comment --no-tui --no-cache)
+        args=(pr "${REPO}#${PR_NUMBER}" --github-comment --no-tui --no-cache)
         [ -n "$MODEL" ]    && args+=(--model "$MODEL")
         [ -n "$PROVIDER" ] && args+=(--provider "$PROVIDER")
         unravel "${args[@]}" > "$RUNNER_TEMP/unravel-comment.md"
       env:
+        REPO: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         UNRAVEL_API_KEY: ${{ inputs.api-key }}
         GH_TOKEN: ${{ inputs.github-token }}
