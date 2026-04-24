@@ -16,7 +16,10 @@ PROVIDER_ENV_KEYS: dict[str, str] = {
 
 PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-6",
+    "claude-cli": "claude-sonnet-4-6",
 }
+
+KNOWN_PROVIDERS: tuple[str, ...] = ("auto", "anthropic", "claude-cli")
 
 WrapMode = str  # "wrap" | "scroll"
 _VALID_WRAP_MODES = ("wrap", "scroll")
@@ -46,13 +49,31 @@ class DiffDisplayConfig:
 
 
 @dataclass
+class ClaudeCLIConfig:
+    """Settings for invoking the local Claude CLI backend."""
+
+    path: str = "claude"
+    respect_user_model: bool = False
+    timeout_seconds: int = 600
+
+    def validate(self) -> None:
+        if not isinstance(self.path, str) or not self.path:
+            raise ValueError("claude_cli.path must be a non-empty string")
+        if not isinstance(self.respect_user_model, bool):
+            raise ValueError("claude_cli.respect_user_model must be a boolean")
+        if not isinstance(self.timeout_seconds, int) or self.timeout_seconds <= 0:
+            raise ValueError("claude_cli.timeout_seconds must be a positive integer")
+
+
+@dataclass
 class UnravelConfig:
-    provider: str = "anthropic"
+    provider: str = "auto"
     api_key: str | None = None
     model: str | None = None
     thinking_budget: int = 10_000
     max_output_tokens: int = 16_000
     diff: DiffDisplayConfig = field(default_factory=DiffDisplayConfig)
+    claude_cli: ClaudeCLIConfig = field(default_factory=ClaudeCLIConfig)
 
     @property
     def resolved_model(self) -> str:
@@ -154,10 +175,24 @@ def _diff_config_from_dict(section: dict[str, Any]) -> DiffDisplayConfig:
     return cfg
 
 
+def _claude_cli_config_from_dict(section: dict[str, Any]) -> ClaudeCLIConfig:
+    """Build a ClaudeCLIConfig from a loaded [claude_cli] dict, defaulting unknown keys."""
+    known = {f.name for f in fields(ClaudeCLIConfig)}
+    kwargs = {k: v for k, v in section.items() if k in known}
+    cfg = ClaudeCLIConfig(**kwargs)
+    try:
+        cfg.validate()
+    except ValueError:
+        return ClaudeCLIConfig()
+    return cfg
+
+
 # ---------------------------------------------------------------------------
 # Dotted-key helpers (for `unravel conf get/set`)
 # ---------------------------------------------------------------------------
 
+
+_TOP_LEVEL_SCHEMA: dict[str, type] = {"provider": str}
 
 _SCHEMA: dict[str, dict[str, type]] = {
     "diff": {
@@ -166,14 +201,24 @@ _SCHEMA: dict[str, dict[str, type]] = {
         "show_line_numbers": bool,
         "theme": str,
     },
+    "claude_cli": {
+        "path": str,
+        "respect_user_model": bool,
+        "timeout_seconds": int,
+    },
 }
 
 
-def _split_key(key: str) -> tuple[str, str]:
+def _split_key(key: str) -> tuple[str | None, str]:
+    """Split ``key`` into ``(section, name)`` where ``section`` is ``None`` for top-level keys."""
     if "." not in key:
-        raise ValueError(
-            f"Setting key must be of the form 'section.name' (got {key!r})"
-        )
+        if key not in _TOP_LEVEL_SCHEMA:
+            raise ValueError(
+                f"Unknown top-level setting '{key}'. Either use a dotted "
+                f"'section.name' key or one of: "
+                f"{', '.join(sorted(_TOP_LEVEL_SCHEMA))}"
+            )
+        return None, key
     section, name = key.split(".", 1)
     if section not in _SCHEMA:
         raise ValueError(
@@ -188,8 +233,8 @@ def _split_key(key: str) -> tuple[str, str]:
     return section, name
 
 
-def _coerce_value(section: str, name: str, raw: str) -> Any:
-    expected = _SCHEMA[section][name]
+def _coerce_value(section: str | None, name: str, raw: str) -> Any:
+    expected = _TOP_LEVEL_SCHEMA[name] if section is None else _SCHEMA[section][name]
     if expected is bool:
         lowered = raw.strip().lower()
         if lowered in ("true", "1", "yes", "on"):
@@ -197,20 +242,43 @@ def _coerce_value(section: str, name: str, raw: str) -> Any:
         if lowered in ("false", "0", "no", "off"):
             return False
         raise ValueError(
-            f"Expected boolean for {section}.{name}, got {raw!r}"
+            f"Expected boolean for {_fmt_key(section, name)}, got {raw!r}"
         )
     if expected is int:
         return int(raw)
     return raw
 
 
+def _fmt_key(section: str | None, name: str) -> str:
+    return name if section is None else f"{section}.{name}"
+
+
+def _validate_top_level(name: str, value: Any) -> None:
+    if name == "provider":
+        if value not in KNOWN_PROVIDERS:
+            raise ValueError(
+                f"provider must be one of {', '.join(KNOWN_PROVIDERS)}, got {value!r}"
+            )
+
+
 def get_setting(key: str, path: Path | None = None) -> Any:
     section, name = _split_key(key)
     data = load_persistent_config(path)
+    if section is None:
+        return data.get(name, _top_level_default(name))
     if section == "diff":
         cfg = _diff_config_from_dict(data.get(section, {}) or {})
         return getattr(cfg, name)
+    if section == "claude_cli":
+        cfg = _claude_cli_config_from_dict(data.get(section, {}) or {})
+        return getattr(cfg, name)
     return data.get(section, {}).get(name)
+
+
+def _top_level_default(name: str) -> Any:
+    # Read the default straight off UnravelConfig so there's one source of truth.
+    defaults = UnravelConfig()
+    return getattr(defaults, name, None)
 
 
 def update_setting(key: str, raw_value: str, path: Path | None = None) -> Any:
@@ -219,15 +287,23 @@ def update_setting(key: str, raw_value: str, path: Path | None = None) -> Any:
     value = _coerce_value(section, name, raw_value)
     data = load_persistent_config(path)
     merged = dict(data)
-    sec = dict(merged.get(section, {}) or {})
-    sec[name] = value
-    merged[section] = sec
 
-    # Validate via the dataclass where possible. Build directly instead of
-    # going through _diff_config_from_dict, which swallows invalid values.
-    if section == "diff":
-        known = {f.name for f in fields(DiffDisplayConfig)}
-        DiffDisplayConfig(**{k: v for k, v in sec.items() if k in known}).validate()
+    if section is None:
+        _validate_top_level(name, value)
+        merged[name] = value
+    else:
+        sec = dict(merged.get(section, {}) or {})
+        sec[name] = value
+        merged[section] = sec
+
+        # Validate via the dataclass where possible. Build directly instead of
+        # going through the *_from_dict helpers, which swallow invalid values.
+        if section == "diff":
+            known = {f.name for f in fields(DiffDisplayConfig)}
+            DiffDisplayConfig(**{k: v for k, v in sec.items() if k in known}).validate()
+        elif section == "claude_cli":
+            known = {f.name for f in fields(ClaudeCLIConfig)}
+            ClaudeCLIConfig(**{k: v for k, v in sec.items() if k in known}).validate()
 
     save_persistent_config(merged, path)
     return value
@@ -237,10 +313,12 @@ def render_config_toml(path: Path | None = None) -> str:
     """Return the current on-disk config as a TOML string (with defaults filled in)."""
     data = load_persistent_config(path)
     # Surface defaults for unset sections so `unravel conf` shows the full picture.
-    diff_section = data.get("diff", {}) or {}
-    diff_cfg = _diff_config_from_dict(diff_section)
     merged = dict(data)
-    merged["diff"] = asdict(diff_cfg)
+    merged.setdefault("provider", UnravelConfig().provider)
+    merged["diff"] = asdict(_diff_config_from_dict(data.get("diff", {}) or {}))
+    merged["claude_cli"] = asdict(
+        _claude_cli_config_from_dict(data.get("claude_cli", {}) or {})
+    )
     return _dump_toml(merged)
 
 
@@ -252,7 +330,12 @@ def render_config_toml(path: Path | None = None) -> str:
 def load_config(**cli_overrides: str | int | None) -> UnravelConfig:
     persistent = load_persistent_config()
 
-    provider = cli_overrides.get("provider") or os.environ.get("UNRAVEL_PROVIDER", "anthropic")
+    default_provider = str(persistent.get("provider") or "auto")
+    provider = (
+        cli_overrides.get("provider")
+        or os.environ.get("UNRAVEL_PROVIDER")
+        or default_provider
+    )
     model = cli_overrides.get("model") or os.environ.get("UNRAVEL_MODEL")
     api_key = cli_overrides.get("api_key") or None
     thinking_budget = cli_overrides.get("thinking_budget") or os.environ.get(
@@ -263,6 +346,7 @@ def load_config(**cli_overrides: str | int | None) -> UnravelConfig:
     )
 
     diff_cfg = _diff_config_from_dict(persistent.get("diff", {}) or {})
+    claude_cli_cfg = _claude_cli_config_from_dict(persistent.get("claude_cli", {}) or {})
 
     return UnravelConfig(
         provider=str(provider),
@@ -271,4 +355,5 @@ def load_config(**cli_overrides: str | int | None) -> UnravelConfig:
         thinking_budget=int(thinking_budget),
         max_output_tokens=int(max_output_tokens),
         diff=diff_cfg,
+        claude_cli=claude_cli_cfg,
     )

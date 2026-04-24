@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Callable
 
@@ -12,9 +11,9 @@ from anthropic import APIConnectionError, APIStatusError, APITimeoutError
 from unravel.config import UnravelConfig
 from unravel.models import Hunk, Walkthrough
 from unravel.prompts import build_analysis_prompt
+from unravel.providers._retry import call_with_json_retry
 from unravel.providers.base import BaseProvider
 
-MAX_JSON_RETRIES = 2
 CLIENT_TIMEOUT_SECONDS = 600.0
 CLIENT_MAX_RETRIES = 3
 STATUS_THROTTLE_SECONDS = 0.25
@@ -57,9 +56,10 @@ class AnthropicProvider(BaseProvider):
         status("Sending diff to Claude...")
         start = time.monotonic()
 
-        response_text, usage = self._call_with_retry(
-            system_prompt, user_prompt, status
-        )
+        def send(messages: list[dict]) -> tuple[str, dict]:
+            return self._send_request(system_prompt, messages, status)
+
+        response_text, usage = call_with_json_retry(send, user_prompt, status)
 
         elapsed = time.monotonic() - start
         status(f"Analysis complete in {elapsed:.1f}s")
@@ -79,42 +79,6 @@ class AnthropicProvider(BaseProvider):
         )
 
         return walkthrough
-
-    def _call_with_retry(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        status: Callable[[str], None],
-    ) -> tuple[str, dict]:
-        messages: list[dict] = [{"role": "user", "content": user_prompt}]
-        cumulative: dict[str, int] = {}
-
-        for attempt in range(1, MAX_JSON_RETRIES + 1):
-            try:
-                text, usage = self._send_request(system_prompt, messages, status)
-                _accumulate_usage(cumulative, usage)
-                json.loads(text)
-                return text, cumulative
-            except json.JSONDecodeError as exc:
-                if attempt >= MAX_JSON_RETRIES:
-                    raise ValueError(
-                        f"Failed to parse JSON from Claude after "
-                        f"{MAX_JSON_RETRIES} attempts. Last error: {exc}"
-                    ) from exc
-                status(f"JSON parse failed (attempt {attempt}), retrying...")
-                messages.append({"role": "assistant", "content": text})
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Your response was not valid JSON. "
-                            f"Parse error: {exc}\n\n"
-                            "Please respond with ONLY the valid JSON object."
-                        ),
-                    }
-                )
-
-        raise RuntimeError("Unreachable")  # pragma: no cover
 
     def _send_request(
         self,
@@ -244,9 +208,3 @@ def _extract_usage(final_message, thinking_chars: int) -> dict:
     if thinking_chars:
         result["thinking_tokens"] = thinking_chars // 4
     return result
-
-
-def _accumulate_usage(acc: dict[str, int], new: dict) -> None:
-    for key, val in new.items():
-        if isinstance(val, int):
-            acc[key] = acc.get(key, 0) + val

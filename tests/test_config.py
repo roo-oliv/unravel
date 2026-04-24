@@ -99,6 +99,27 @@ class TestUpdateSetting:
         with pytest.raises(ValueError, match="Unknown setting"):
             update_setting("diff.bogus", "value")
 
+    def test_rejects_unknown_top_level(self, tmp_config: Path):
+        with pytest.raises(ValueError, match="Unknown top-level"):
+            update_setting("nonsense", "value")
+
+    def test_set_top_level_provider(self, tmp_config: Path):
+        update_setting("provider", "claude-cli")
+        assert load_persistent_config()["provider"] == "claude-cli"
+        assert get_setting("provider") == "claude-cli"
+
+    def test_rejects_invalid_provider(self, tmp_config: Path):
+        with pytest.raises(ValueError, match="provider must be one of"):
+            update_setting("provider", "bogus")
+
+    def test_set_claude_cli_path(self, tmp_config: Path):
+        update_setting("claude_cli.path", "/opt/claude")
+        assert load_persistent_config()["claude_cli"]["path"] == "/opt/claude"
+
+    def test_rejects_empty_claude_cli_path(self, tmp_config: Path):
+        with pytest.raises(ValueError, match="claude_cli.path"):
+            update_setting("claude_cli.path", "")
+
     def test_rejects_invalid_wrap_mode(self, tmp_config: Path):
         with pytest.raises(ValueError, match="wrap_mode"):
             update_setting("diff.wrap_mode", "bananas")
@@ -148,6 +169,45 @@ class TestLoadConfigIntegration:
         cfg = load_config()
         assert isinstance(cfg.diff, DiffDisplayConfig)
         assert cfg.diff.wrap_mode == "scroll"
+
+    def test_default_provider_is_auto(
+        self, tmp_config: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.delenv("UNRAVEL_PROVIDER", raising=False)
+        from unravel.config import load_config
+
+        cfg = load_config()
+        assert cfg.provider == "auto"
+
+    def test_persistent_provider_respected(
+        self, tmp_config: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.delenv("UNRAVEL_PROVIDER", raising=False)
+        update_setting("provider", "claude-cli")
+        from unravel.config import load_config
+
+        cfg = load_config()
+        assert cfg.provider == "claude-cli"
+
+    def test_env_var_overrides_persistent_provider(
+        self, tmp_config: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        update_setting("provider", "claude-cli")
+        monkeypatch.setenv("UNRAVEL_PROVIDER", "anthropic")
+        from unravel.config import load_config
+
+        cfg = load_config()
+        assert cfg.provider == "anthropic"
+
+    def test_cli_override_beats_env_and_persistent(
+        self, tmp_config: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        update_setting("provider", "claude-cli")
+        monkeypatch.setenv("UNRAVEL_PROVIDER", "anthropic")
+        from unravel.config import load_config
+
+        cfg = load_config(provider="auto")
+        assert cfg.provider == "auto"
 
 
 def test_xdg_unset_resolves_via_home(monkeypatch: pytest.MonkeyPatch):

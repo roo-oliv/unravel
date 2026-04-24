@@ -413,8 +413,16 @@ def _run(
             max_output_tokens=max_output_tokens,
         )
 
-        llm = get_provider(config)
+        requested_provider = config.provider
+        llm = get_provider(config)  # resolves "auto" → concrete provider
         llm.validate_config()
+
+        if requested_provider == "auto":
+            label = {
+                "claude-cli": "local Claude CLI",
+                "anthropic": "Anthropic API",
+            }.get(config.provider, config.provider)
+            console.print(f"[dim]Using {label}[/dim]")
 
         metadata: dict = {}
         source_label: str
