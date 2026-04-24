@@ -19,44 +19,44 @@ def isolated_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 class TestCacheKey:
     def test_stable_for_identical_input(self):
-        a = cache.cache_key("diff", "anthropic", "claude-sonnet-4-6")
-        b = cache.cache_key("diff", "anthropic", "claude-sonnet-4-6")
+        a = cache.cache_key("diff", "claude-api", "claude-sonnet-4-6")
+        b = cache.cache_key("diff", "claude-api", "claude-sonnet-4-6")
         assert a == b
 
     def test_changes_when_diff_changes(self):
-        a = cache.cache_key("diff A", "anthropic", "m")
-        b = cache.cache_key("diff B", "anthropic", "m")
+        a = cache.cache_key("diff A", "claude-api", "m")
+        b = cache.cache_key("diff B", "claude-api", "m")
         assert a != b
 
     def test_changes_when_model_changes(self):
-        a = cache.cache_key("diff", "anthropic", "claude-sonnet-4-6")
-        b = cache.cache_key("diff", "anthropic", "claude-opus-4-6")
+        a = cache.cache_key("diff", "claude-api", "claude-sonnet-4-6")
+        b = cache.cache_key("diff", "claude-api", "claude-opus-4-6")
         assert a != b
 
     def test_changes_when_provider_changes(self):
-        a = cache.cache_key("diff", "anthropic", "m")
+        a = cache.cache_key("diff", "claude-api", "m")
         b = cache.cache_key("diff", "openai", "m")
         assert a != b
 
 
 class TestRoundTrip:
     def test_load_miss_returns_none(self):
-        assert cache.load("diff", "anthropic", "m") is None
+        assert cache.load("diff", "claude-api", "m") is None
 
     def test_save_then_load(
         self, sample_walkthrough: Walkthrough, simple_diff: str
     ):
         cache.save(
             simple_diff,
-            "anthropic",
+            "claude-api",
             "claude-sonnet-4-6",
             sample_walkthrough,
             source_label="range:HEAD~1..HEAD",
         )
-        entry = cache.load(simple_diff, "anthropic", "claude-sonnet-4-6")
+        entry = cache.load(simple_diff, "claude-api", "claude-sonnet-4-6")
         assert entry is not None
         assert entry.source_label == "range:HEAD~1..HEAD"
-        assert entry.provider == "anthropic"
+        assert entry.provider == "claude-api"
         assert entry.model == "claude-sonnet-4-6"
         assert len(entry.walkthrough.threads) == len(sample_walkthrough.threads)
         assert entry.walkthrough.raw_diff == simple_diff
@@ -66,12 +66,12 @@ class TestRoundTrip:
     ):
         cache.save(
             simple_diff,
-            "anthropic",
+            "claude-api",
             "m",
             sample_walkthrough,
             source_label="",
         )
-        assert cache.load(simple_diff + "\n", "anthropic", "m") is None
+        assert cache.load(simple_diff + "\n", "claude-api", "m") is None
 
     def test_corrupt_entry_returns_none(self, isolated_cache: Path):
         (isolated_cache / "unravel").mkdir()

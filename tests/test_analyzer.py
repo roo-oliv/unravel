@@ -10,7 +10,7 @@ from unravel.git import parse_diff
 from unravel.models import Walkthrough
 from unravel.narrator import validate_walkthrough
 from unravel.prompts import build_analysis_prompt
-from unravel.providers.anthropic import AnthropicProvider
+from unravel.providers.claude_api import ClaudeAPIProvider
 
 
 class TestBuildAnalysisPrompt:
@@ -55,11 +55,11 @@ class TestBuildAnalysisPrompt:
         assert "threads" in schema["properties"]
 
 
-class TestAnthropicProviderParsing:
+class TestClaudeAPIProviderParsing:
     def test_parse_response(self, sample_response_text: str, simple_diff: str):
         """Test that the provider can parse a valid JSON response into a Walkthrough."""
-        config = UnravelConfig(api_key="test-key")
-        provider = AnthropicProvider(config)
+        config = UnravelConfig(provider="claude-api", api_key="test-key")
+        provider = ClaudeAPIProvider(config)
 
         hunks = parse_diff(simple_diff)
 
@@ -85,7 +85,7 @@ class TestAnthropicProviderParsing:
 
         assert isinstance(walkthrough, Walkthrough)
         assert len(walkthrough.threads) == 2
-        assert walkthrough.metadata["provider"] == "anthropic"
+        assert walkthrough.metadata["provider"] == "claude-api"
 
 
 class TestValidateWalkthrough:
