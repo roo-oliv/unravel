@@ -24,7 +24,7 @@ class ClaudeCLIProvider(BaseProvider):
             raise ValueError(
                 f"Claude CLI not found at {self.config.claude_cli.path!r}. "
                 "Install Claude Code from https://claude.com/product/claude-code "
-                "or pin the Anthropic API via `unravel conf set provider anthropic` "
+                "or pin the Claude API via `unravel conf set provider claude-api` "
                 "(and set ANTHROPIC_API_KEY)."
             )
         if not self.config.resolved_model and not self.config.claude_cli.respect_user_model:

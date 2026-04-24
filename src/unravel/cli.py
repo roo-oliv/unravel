@@ -420,7 +420,7 @@ def _run(
         if requested_provider == "auto":
             label = {
                 "claude-cli": "local Claude CLI",
-                "anthropic": "Anthropic API",
+                "claude-api": "Claude API",
             }.get(config.provider, config.provider)
             console.print(f"[dim]Using {label}[/dim]")
 

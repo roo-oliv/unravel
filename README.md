@@ -90,14 +90,14 @@ export ANTHROPIC_API_KEY=sk-ant-...
 |------|----------------|---------------|
 | `auto` (default) | Picks the first available backend | `claude` on PATH **or** `ANTHROPIC_API_KEY` |
 | `claude-cli` | Always use the local Claude CLI | `claude` binary, authenticated |
-| `anthropic` | Always hit the Anthropic API | `ANTHROPIC_API_KEY` |
+| `claude-api` | Always hit the Claude API | `ANTHROPIC_API_KEY` |
 
 Pin a specific backend any of these ways:
 
 ```bash
-unravel conf set provider anthropic       # persistent
+unravel conf set provider claude-api      # persistent
 UNRAVEL_PROVIDER=claude-cli unravel ...   # one session
-unravel diff HEAD~1 --provider anthropic  # single invocation
+unravel diff HEAD~1 --provider claude-api # single invocation
 ```
 
 ### CLI Options
@@ -105,7 +105,7 @@ unravel diff HEAD~1 --provider anthropic  # single invocation
 | Flag | Description |
 |------|-------------|
 | `--model`, `-m` | Model to use (default: `claude-sonnet-4-6`) |
-| `--provider`, `-p` | LLM provider: `auto`, `claude-cli`, or `anthropic` (default: `auto`) |
+| `--provider`, `-p` | LLM provider: `auto`, `claude-cli`, or `claude-api` (default: `auto`) |
 | `--json`, `-j` | Output raw JSON |
 | `--tree-only`, `-t` | Compact tree view |
 | `--thinking-budget` | Extended thinking token budget (default: 10000) |
@@ -116,9 +116,9 @@ unravel diff HEAD~1 --provider anthropic  # single invocation
 
 | Variable | Description |
 |----------|-------------|
-| `ANTHROPIC_API_KEY` | API key for Anthropic/Claude (not needed with `claude-cli` backend) |
+| `ANTHROPIC_API_KEY` | API key for the Claude API (not needed with `claude-cli` backend) |
 | `OPENAI_API_KEY` | API key for OpenAI (future) |
-| `UNRAVEL_PROVIDER` | Default provider: `auto`, `claude-cli`, or `anthropic` |
+| `UNRAVEL_PROVIDER` | Default provider: `auto`, `claude-cli`, or `claude-api` |
 | `UNRAVEL_MODEL` | Default model |
 | `UNRAVEL_THINKING_BUDGET` | Default thinking budget |
 
@@ -135,7 +135,7 @@ unravel diff HEAD~1 --provider anthropic  # single invocation
 Unravel is designed to work with multiple LLM providers. Currently supported:
 
 - **Claude CLI** (`claude-cli`) — uses your local, authenticated `claude` binary
-- **Anthropic API** (`anthropic`) — direct HTTP with extended thinking support
+- **Claude API** (`claude-api`) — direct HTTP via the Anthropic SDK, with extended thinking support
 
 Planned: OpenAI, Gemini, and more. The provider abstraction is ready — contributions welcome.
 

@@ -1,4 +1,4 @@
-"""Anthropic (Claude) provider implementation."""
+"""Claude API provider — direct HTTP calls via the official Anthropic SDK."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ CLIENT_MAX_RETRIES = 3
 STATUS_THROTTLE_SECONDS = 0.25
 
 
-class AnthropicProvider(BaseProvider):
+class ClaudeAPIProvider(BaseProvider):
     def __init__(self, config: UnravelConfig) -> None:
         super().__init__(config)
         self._client: anthropic.Anthropic | None = None
@@ -37,7 +37,7 @@ class AnthropicProvider(BaseProvider):
     def validate_config(self) -> None:
         _ = self.config.resolved_api_key
         if not self.config.resolved_model:
-            raise ValueError("No model configured for Anthropic provider.")
+            raise ValueError("No model configured for Claude API provider.")
 
     def analyze(
         self,
@@ -66,7 +66,7 @@ class AnthropicProvider(BaseProvider):
 
         walkthrough = Walkthrough.from_json(response_text, raw_diff=raw_diff)
         walkthrough.metadata["model"] = self.config.resolved_model
-        walkthrough.metadata["provider"] = "anthropic"
+        walkthrough.metadata["provider"] = "claude-api"
         walkthrough.metadata["elapsed_seconds"] = round(elapsed, 2)
         walkthrough.metadata["input_tokens"] = usage.get("input_tokens", 0)
         walkthrough.metadata["output_tokens"] = usage.get("output_tokens", 0)

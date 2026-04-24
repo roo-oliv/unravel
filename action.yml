@@ -9,9 +9,9 @@ inputs:
     description: "LLM API key (e.g. Anthropic API key)"
     required: true
   provider:
-    description: "LLM provider (default: anthropic — CI has no local Claude CLI)"
+    description: "LLM provider (default: claude-api — CI has no local Claude CLI)"
     required: false
-    default: "anthropic"
+    default: "claude-api"
   model:
     description: "Model to use (default: provider default)"
     required: false

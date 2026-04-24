@@ -8,7 +8,7 @@ import pytest
 
 from unravel.config import UnravelConfig
 from unravel.providers import get_provider
-from unravel.providers.anthropic import AnthropicProvider
+from unravel.providers.claude_api import ClaudeAPIProvider
 from unravel.providers.claude_cli import ClaudeCLIProvider
 
 
@@ -21,15 +21,15 @@ class TestAutoResolution:
         assert isinstance(provider, ClaudeCLIProvider)
         assert cfg.provider == "claude-cli"
 
-    def test_auto_falls_back_to_anthropic_when_cli_missing_and_key_set(
+    def test_auto_falls_back_to_api_when_cli_missing_and_key_set(
         self, monkeypatch: pytest.MonkeyPatch
     ):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
         cfg = UnravelConfig(provider="auto")
         with patch("unravel.providers.registry.shutil.which", return_value=None):
             provider = get_provider(cfg)
-        assert isinstance(provider, AnthropicProvider)
-        assert cfg.provider == "anthropic"
+        assert isinstance(provider, ClaudeAPIProvider)
+        assert cfg.provider == "claude-api"
 
     def test_auto_defaults_to_cli_when_nothing_configured(
         self, monkeypatch: pytest.MonkeyPatch
@@ -45,9 +45,14 @@ class TestAutoResolution:
 
 
 class TestExplicitProviders:
-    def test_explicit_anthropic(self):
+    def test_explicit_claude_api(self):
+        cfg = UnravelConfig(provider="claude-api", api_key="sk")
+        assert isinstance(get_provider(cfg), ClaudeAPIProvider)
+
+    def test_legacy_anthropic_alias_still_works(self):
         cfg = UnravelConfig(provider="anthropic", api_key="sk")
-        assert isinstance(get_provider(cfg), AnthropicProvider)
+        assert isinstance(get_provider(cfg), ClaudeAPIProvider)
+        assert cfg.provider == "claude-api"
 
     def test_explicit_claude_cli(self):
         cfg = UnravelConfig(provider="claude-cli")

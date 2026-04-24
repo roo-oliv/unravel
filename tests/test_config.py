@@ -108,6 +108,10 @@ class TestUpdateSetting:
         assert load_persistent_config()["provider"] == "claude-cli"
         assert get_setting("provider") == "claude-cli"
 
+    def test_set_legacy_anthropic_stores_canonical(self, tmp_config: Path):
+        update_setting("provider", "anthropic")
+        assert load_persistent_config()["provider"] == "claude-api"
+
     def test_rejects_invalid_provider(self, tmp_config: Path):
         with pytest.raises(ValueError, match="provider must be one of"):
             update_setting("provider", "bogus")
@@ -193,21 +197,30 @@ class TestLoadConfigIntegration:
         self, tmp_config: Path, monkeypatch: pytest.MonkeyPatch
     ):
         update_setting("provider", "claude-cli")
-        monkeypatch.setenv("UNRAVEL_PROVIDER", "anthropic")
+        monkeypatch.setenv("UNRAVEL_PROVIDER", "claude-api")
         from unravel.config import load_config
 
         cfg = load_config()
-        assert cfg.provider == "anthropic"
+        assert cfg.provider == "claude-api"
 
     def test_cli_override_beats_env_and_persistent(
         self, tmp_config: Path, monkeypatch: pytest.MonkeyPatch
     ):
         update_setting("provider", "claude-cli")
-        monkeypatch.setenv("UNRAVEL_PROVIDER", "anthropic")
+        monkeypatch.setenv("UNRAVEL_PROVIDER", "claude-api")
         from unravel.config import load_config
 
         cfg = load_config(provider="auto")
         assert cfg.provider == "auto"
+
+    def test_legacy_anthropic_alias_normalizes(
+        self, tmp_config: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("UNRAVEL_PROVIDER", "anthropic")
+        from unravel.config import load_config
+
+        cfg = load_config()
+        assert cfg.provider == "claude-api"
 
 
 def test_xdg_unset_resolves_via_home(monkeypatch: pytest.MonkeyPatch):

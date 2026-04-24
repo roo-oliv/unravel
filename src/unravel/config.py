@@ -9,17 +9,25 @@ from pathlib import Path
 from typing import Any
 
 PROVIDER_ENV_KEYS: dict[str, str] = {
-    "anthropic": "ANTHROPIC_API_KEY",
+    "claude-api": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
     "gemini": "GEMINI_API_KEY",
 }
 
 PROVIDER_DEFAULT_MODELS: dict[str, str] = {
-    "anthropic": "claude-sonnet-4-6",
+    "claude-api": "claude-sonnet-4-6",
     "claude-cli": "claude-sonnet-4-6",
 }
 
-KNOWN_PROVIDERS: tuple[str, ...] = ("auto", "anthropic", "claude-cli")
+KNOWN_PROVIDERS: tuple[str, ...] = ("auto", "claude-api", "claude-cli")
+
+# Accept legacy provider names and normalize to the canonical id.
+PROVIDER_ALIASES: dict[str, str] = {"anthropic": "claude-api"}
+
+
+def normalize_provider(name: str) -> str:
+    """Return the canonical provider id, resolving legacy aliases."""
+    return PROVIDER_ALIASES.get(name, name)
 
 WrapMode = str  # "wrap" | "scroll"
 _VALID_WRAP_MODES = ("wrap", "scroll")
@@ -255,7 +263,8 @@ def _fmt_key(section: str | None, name: str) -> str:
 
 def _validate_top_level(name: str, value: Any) -> None:
     if name == "provider":
-        if value not in KNOWN_PROVIDERS:
+        accepted = set(KNOWN_PROVIDERS) | set(PROVIDER_ALIASES)
+        if value not in accepted:
             raise ValueError(
                 f"provider must be one of {', '.join(KNOWN_PROVIDERS)}, got {value!r}"
             )
@@ -290,6 +299,8 @@ def update_setting(key: str, raw_value: str, path: Path | None = None) -> Any:
 
     if section is None:
         _validate_top_level(name, value)
+        if name == "provider":
+            value = normalize_provider(str(value))
         merged[name] = value
     else:
         sec = dict(merged.get(section, {}) or {})
@@ -336,6 +347,7 @@ def load_config(**cli_overrides: str | int | None) -> UnravelConfig:
         or os.environ.get("UNRAVEL_PROVIDER")
         or default_provider
     )
+    provider = normalize_provider(str(provider))
     model = cli_overrides.get("model") or os.environ.get("UNRAVEL_MODEL")
     api_key = cli_overrides.get("api_key") or None
     thinking_budget = cli_overrides.get("thinking_budget") or os.environ.get(
