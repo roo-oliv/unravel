@@ -11,7 +11,10 @@ inputs:
   provider:
     description: "LLM provider (default: claude-api — CI has no local Claude CLI)"
     required: false
-    default: "claude-api"
+    # Use the legacy "anthropic" name so the action remains compatible with
+    # older unravel releases on PyPI that predate the claude-api rename.
+    # Newer versions normalize this alias to "claude-api" transparently.
+    default: "anthropic"
   model:
     description: "Model to use (default: provider default)"
     required: false
@@ -30,7 +33,9 @@ runs:
 
     - name: Install unravel
       shell: bash
-      run: uv pip install --system unravel-review
+      # setup-uv@v5 activates a venv at $VIRTUAL_ENV; install into that rather
+      # than the externally-managed system Python.
+      run: uv pip install unravel-review
 
     - name: Run analysis and generate comment
       shell: bash
