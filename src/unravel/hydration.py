@@ -19,6 +19,12 @@ def hydrate_walkthrough(
     """
     warnings: list[str] = []
     by_id = {h.id: h for h in parsed_hunks if h.id}
+    # Captions are best-effort. If the walkthrough was produced before captions
+    # existed (e.g. an old cache), the entire map is empty — that's expected,
+    # don't warn. Only flag missing captions when some are present, and even
+    # then collapse to a single summary line so we don't flood stdout.
+    has_any_captions = bool(walkthrough.hunk_captions)
+    missing_captions: list[str] = []
 
     for thread in walkthrough.threads:
         for step in thread.steps:
@@ -45,6 +51,9 @@ def hydrate_walkthrough(
                     )
                     resolved.append(ref)
                     continue
+                caption = walkthrough.hunk_captions.get(hunk_id, "")
+                if has_any_captions and not caption and hunk_id not in missing_captions:
+                    missing_captions.append(hunk_id)
                 # Copy content/metadata into a fresh Hunk so thread edits don't
                 # mutate the shared parsed instance.
                 resolved.append(
@@ -59,9 +68,19 @@ def hydrate_walkthrough(
                         context_before=source.context_before,
                         context_after=source.context_after,
                         language=source.language,
+                        additions=source.additions,
+                        deletions=source.deletions,
+                        caption=caption,
                     )
                 )
             step.hunks = resolved
+
+    if missing_captions:
+        warnings.append(
+            f"No caption provided for {len(missing_captions)} "
+            f"hunk{'s' if len(missing_captions) != 1 else ''}: "
+            f"{', '.join(missing_captions)}"
+        )
 
     return walkthrough, warnings
 

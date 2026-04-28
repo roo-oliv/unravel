@@ -39,6 +39,33 @@ class TestHunk:
         hunk = Hunk.from_dict(data)
         assert hunk.file_path == "a.py"
 
+    def test_new_fields_round_trip(self):
+        hunk = Hunk(
+            file_path="a.py",
+            additions=4,
+            deletions=2,
+            caption="New imports",
+        )
+        restored = Hunk.from_dict(hunk.to_dict())
+        assert restored.additions == 4
+        assert restored.deletions == 2
+        assert restored.caption == "New imports"
+
+    def test_from_dict_defaults_missing_new_fields(self):
+        # Old cache payloads predate additions/deletions/caption.
+        data = {
+            "file_path": "a.py",
+            "old_start": 1,
+            "old_count": 1,
+            "new_start": 1,
+            "new_count": 1,
+            "content": "",
+        }
+        hunk = Hunk.from_dict(data)
+        assert hunk.additions == 0
+        assert hunk.deletions == 0
+        assert hunk.caption == ""
+
 
 class TestThreadStep:
     def test_round_trip(self):
@@ -113,3 +140,18 @@ class TestWalkthrough:
         assert wt.threads[0].id == "auth-error-handling"
         assert wt.threads[1].dependencies == ["auth-error-handling"]
         assert wt.raw_diff == simple_diff
+
+    def test_hunk_captions_round_trip(self, sample_walkthrough: Walkthrough, simple_diff: str):
+        sample_walkthrough.hunk_captions = {"H1": "New imports", "H2": "Constants update"}
+        restored = Walkthrough.from_json(
+            sample_walkthrough.to_json(), raw_diff=simple_diff
+        )
+        assert restored.hunk_captions == {"H1": "New imports", "H2": "Constants update"}
+
+    def test_from_dict_defaults_missing_hunk_captions(
+        self, sample_response_dict: dict, simple_diff: str
+    ):
+        # Simulate an old cached payload that predates hunk_captions.
+        legacy = {k: v for k, v in sample_response_dict.items() if k != "hunk_captions"}
+        wt = Walkthrough.from_dict(legacy, raw_diff=simple_diff)
+        assert wt.hunk_captions == {}

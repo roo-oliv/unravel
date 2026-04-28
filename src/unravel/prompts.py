@@ -28,6 +28,18 @@ The user message includes a **File summary** that assigns every hunk a stable ID
 exactly as given — do NOT invent line numbers or new IDs. Each step's `hunks` \
 field is an array of these string IDs.
 
+## Hunk captions
+
+Provide a top-level `hunk_captions` object mapping every hunk ID to a short \
+one-liner (2-5 words) describing **what** the hunk contains at a glance — \
+not why. Examples: "New imports", "Imports update", "Removed imports", \
+"New createFooBar function", "getFooBar signature update", \
+"bar sorting order update", "New constants", "Constants update", \
+"New X enum item", "Removed dead code". Coverage is mandatory: every hunk ID \
+in the File Summary must appear as a key in `hunk_captions`. The caption \
+describes the hunk content itself, so it does not change based on which \
+step references the hunk.
+
 ## Guiding principles
 
 1. **Coverage is mandatory**: Every hunk ID listed in the File Summary MUST appear \

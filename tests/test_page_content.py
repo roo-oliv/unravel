@@ -7,11 +7,14 @@ from rich.table import Table
 from rich.text import Text
 
 from unravel.config import DiffDisplayConfig
-from unravel.models import Hunk
+from unravel.models import Hunk, Thread, ThreadStep, Walkthrough
+from unravel.tui.state import WalkthroughState
 from unravel.tui.widgets.page_content import (
     _ADD_BG,
     _DEL_BG,
+    _render_full_diff,
     _render_hunk_diff,
+    _render_thread_rows,
     _resolve_language,
     styled_text,
 )
@@ -266,3 +269,241 @@ class TestRenderHunkDiff:
         table = panel.renderable
         code_cells = list(table.columns[-1]._cells)
         assert len(code_cells[0].spans) > 0
+
+
+class TestRenderThreadRows:
+    def _state_with(self, hunks: list[Hunk]) -> WalkthroughState:
+        thread = Thread(
+            id="t1",
+            title="T1",
+            summary="s",
+            root_cause="r",
+            steps=[ThreadStep(hunks=hunks, narration="n", order=1)],
+        )
+        wt = Walkthrough(
+            threads=[thread],
+            overview="ov",
+            suggested_order=["t1"],
+        )
+        state = WalkthroughState(walkthrough=wt)
+        state.page_index = 1
+        return state
+
+    def _texts(self, parts):
+        return [p for p in parts if isinstance(p, Text)]
+
+    def test_caption_row_appears_above_hunk(self):
+        h = Hunk(
+            id="H1",
+            file_path="src/foo.py",
+            new_start=10,
+            new_count=5,
+            additions=2,
+            deletions=1,
+            caption="New imports",
+        )
+        state = self._state_with([h])
+        parts = _render_thread_rows(state, state.ordered_threads[0])
+        texts = self._texts(parts)
+        # Find the caption row immediately followed by the file row.
+        plains = [t.plain for t in texts]
+        caption_idx = next(
+            i for i, p in enumerate(plains) if p.strip() == "New imports"
+        )
+        file_idx = next(
+            i for i, p in enumerate(plains) if "src/foo.py" in p and "▶" in p
+        )
+        assert caption_idx == file_idx - 1
+
+    def test_caption_row_omitted_when_empty(self):
+        h = Hunk(
+            id="H1",
+            file_path="src/foo.py",
+            new_start=10,
+            new_count=5,
+            additions=2,
+            deletions=1,
+            caption="",
+        )
+        state = self._state_with([h])
+        parts = _render_thread_rows(state, state.ordered_threads[0])
+        plains = [t.plain for t in self._texts(parts)]
+        # No bare caption-style row should sit above the file row.
+        file_idx = next(i for i, p in enumerate(plains) if "src/foo.py" in p)
+        # The line directly above is either the step line, blank, or another row;
+        # it must not be a stray caption-only string.
+        above = plains[file_idx - 1]
+        assert above.strip() == "" or "Step" in above or "▶" in above
+
+    def test_diff_counter_segments_have_green_red_styles(self):
+        h = Hunk(
+            id="H1",
+            file_path="src/foo.py",
+            new_start=10,
+            new_count=5,
+            additions=4,
+            deletions=30,
+            caption="Imports update",
+        )
+        state = self._state_with([h])
+        parts = _render_thread_rows(state, state.ordered_threads[0])
+        file_text = next(
+            t for t in self._texts(parts) if "src/foo.py" in t.plain
+        )
+        # The plain text contains both segments adjacent: "+4-30".
+        assert "+4-30" in file_text.plain
+        # Verify color spans cover those segments.
+        styles = [str(span.style) for span in file_text.spans]
+        assert any(s == "green" for s in styles)
+        assert any(s == "red" for s in styles)
+
+    def test_counter_omitted_when_zero(self):
+        h = Hunk(
+            id="H1",
+            file_path="empty.bin",
+            new_start=0,
+            new_count=0,
+            additions=0,
+            deletions=0,
+            caption="Binary file",
+        )
+        state = self._state_with([h])
+        parts = _render_thread_rows(state, state.ordered_threads[0])
+        file_text = next(
+            t for t in self._texts(parts) if "empty.bin" in t.plain
+        )
+        assert "+0" not in file_text.plain
+        assert "-0" not in file_text.plain
+
+    def test_caption_rows_do_not_consume_focus_index(self):
+        # Two hunks with captions — current_rows() must still return 2 rows
+        # (one per hunk), not 4.
+        h1 = Hunk(
+            id="H1", file_path="a.py", new_start=1, new_count=2,
+            additions=1, deletions=0, caption="Cap A",
+        )
+        h2 = Hunk(
+            id="H2", file_path="b.py", new_start=1, new_count=2,
+            additions=0, deletions=1, caption="Cap B",
+        )
+        state = self._state_with([h1, h2])
+        rows = state.current_rows()
+        assert len(rows) == 2
+
+
+class TestRenderFullDiff:
+    def _state_with(self, parsed: list[Hunk], captions: dict[str, str]) -> WalkthroughState:
+        thread = Thread(
+            id="t1",
+            title="T1",
+            summary="s",
+            root_cause="r",
+            steps=[
+                ThreadStep(
+                    hunks=[Hunk(id=h.id) for h in parsed],
+                    narration="n",
+                    order=1,
+                )
+            ],
+        )
+        wt = Walkthrough(
+            threads=[thread],
+            overview="ov",
+            suggested_order=["t1"],
+            hunk_captions=captions,
+        )
+        state = WalkthroughState(walkthrough=wt, all_hunks=parsed)
+        # Move to the full-diff page (last page).
+        state.page_index = state.page_count - 1
+        return state
+
+    def _texts_from_group(self, group):
+        return [r for r in group.renderables if isinstance(r, Text)]
+
+    def test_full_diff_shows_caption_above_row(self):
+        h = Hunk(
+            id="H1",
+            file_path="src/foo.py",
+            new_start=10,
+            new_count=5,
+            additions=2,
+            deletions=1,
+            content=" ctx\n+a\n-b\n",
+        )
+        state = self._state_with([h], {"H1": "New imports"})
+        result = _render_full_diff(state)
+        plains = [t.plain for t in self._texts_from_group(result)]
+        cap_idx = next(i for i, p in enumerate(plains) if p.strip() == "New imports")
+        row_idx = next(
+            i
+            for i, p in enumerate(plains)
+            if "H1" in p and ("▶" in p or "▼" in p)
+        )
+        assert cap_idx == row_idx - 1
+
+    def test_full_diff_shows_diff_counter(self):
+        h = Hunk(
+            id="H2",
+            file_path="src/bar.py",
+            new_start=20,
+            new_count=3,
+            additions=4,
+            deletions=30,
+            content=" ctx\n",
+        )
+        state = self._state_with([h], {"H2": "Constants update"})
+        result = _render_full_diff(state)
+        row_text = next(
+            t
+            for t in self._texts_from_group(result)
+            if "H2" in t.plain and ("▶" in t.plain or "▼" in t.plain)
+        )
+        assert "+4-30" in row_text.plain
+        styles = [str(span.style) for span in row_text.spans]
+        assert any(s == "green" for s in styles)
+        assert any(s == "red" for s in styles)
+
+    def test_full_diff_omits_counter_when_zero(self):
+        h = Hunk(
+            id="H3",
+            file_path="img.png",
+            new_start=0,
+            new_count=0,
+            additions=0,
+            deletions=0,
+            content="[binary file]",
+        )
+        state = self._state_with([h], {"H3": "Binary asset"})
+        result = _render_full_diff(state)
+        row_text = next(
+            t
+            for t in self._texts_from_group(result)
+            if "H3" in t.plain and ("▶" in t.plain or "▼" in t.plain)
+        )
+        assert "+0" not in row_text.plain
+        assert "-0" not in row_text.plain
+
+    def test_full_diff_file_header_aggregates_counters(self):
+        # Two hunks in the same file — the file header should sum their
+        # additions and deletions and show them between the path and (N hunks).
+        h1 = Hunk(
+            id="H1", file_path="src/foo.py", new_start=10, new_count=3,
+            additions=4, deletions=1, content=" ctx\n",
+        )
+        h2 = Hunk(
+            id="H2", file_path="src/foo.py", new_start=30, new_count=5,
+            additions=6, deletions=2, content=" ctx\n",
+        )
+        state = self._state_with([h1, h2], {"H1": "A", "H2": "B"})
+        result = _render_full_diff(state)
+        header = next(
+            t
+            for t in self._texts_from_group(result)
+            if t.plain.startswith("src/foo.py") and "hunks" in t.plain
+        )
+        assert "+10" in header.plain
+        assert "-3" in header.plain
+        assert "(2 hunks)" in header.plain
+        styles = [str(span.style) for span in header.spans]
+        assert any(s == "green" for s in styles)
+        assert any(s == "red" for s in styles)

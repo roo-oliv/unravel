@@ -88,6 +88,9 @@ class Hunk:
     context_after: str = ""
     language: str | None = None
     id: str = ""
+    additions: int = 0
+    deletions: int = 0
+    caption: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -101,6 +104,9 @@ class Hunk:
             "context_before": self.context_before,
             "context_after": self.context_after,
             "language": self.language,
+            "additions": self.additions,
+            "deletions": self.deletions,
+            "caption": self.caption,
         }
 
     @classmethod
@@ -168,6 +174,7 @@ class Walkthrough:
     suggested_order: list[str]
     raw_diff: str = ""
     metadata: dict = field(default_factory=dict)
+    hunk_captions: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -175,6 +182,7 @@ class Walkthrough:
             "overview": self.overview,
             "suggested_order": self.suggested_order,
             "metadata": self.metadata,
+            "hunk_captions": self.hunk_captions,
         }
 
     @classmethod
@@ -185,6 +193,7 @@ class Walkthrough:
             suggested_order=data["suggested_order"],
             raw_diff=raw_diff,
             metadata=data.get("metadata", {}),
+            hunk_captions=data.get("hunk_captions", {}),
         )
 
     def to_json(self, indent: int = 2) -> str:
@@ -208,7 +217,7 @@ def _parse_hunk_ref(ref: str | dict) -> Hunk:
 
 WALKTHROUGH_JSON_SCHEMA: dict = {
     "type": "object",
-    "required": ["threads", "overview", "suggested_order"],
+    "required": ["threads", "overview", "suggested_order", "hunk_captions"],
     "properties": {
         "overview": {
             "type": "string",
@@ -218,6 +227,18 @@ WALKTHROUGH_JSON_SCHEMA: dict = {
             "type": "array",
             "items": {"type": "string"},
             "description": "Thread IDs in recommended review order (foundational first).",
+        },
+        "hunk_captions": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+            "description": (
+                "Map of every hunk ID (e.g., 'H1') to a short 2-5 word "
+                "one-liner describing WHAT the hunk contains at a glance "
+                "(not why). Examples: 'New imports', 'Imports update', "
+                "'New createFooBar function', 'getFooBar signature update', "
+                "'Constants update', 'New X enum item'. Coverage is "
+                "mandatory: every hunk ID must appear as a key."
+            ),
         },
         "threads": {
             "type": "array",
