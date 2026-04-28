@@ -467,6 +467,11 @@ def _render_full_diff(state: WalkthroughState) -> RenderableType:
     for file_path, entries in by_file.items():
         file_header = Text()
         file_header.append(file_path, style="bold")
+        file_additions = sum(h.additions for _, h in entries)
+        file_deletions = sum(h.deletions for _, h in entries)
+        if file_additions or file_deletions:
+            file_header.append(f"  +{file_additions}", style="green")
+            file_header.append(f"-{file_deletions}", style="red")
         file_header.append(
             f"  ({len(entries)} hunk{'s' if len(entries) != 1 else ''})",
             style="dim",

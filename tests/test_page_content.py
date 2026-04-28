@@ -482,3 +482,28 @@ class TestRenderFullDiff:
         )
         assert "+0" not in row_text.plain
         assert "-0" not in row_text.plain
+
+    def test_full_diff_file_header_aggregates_counters(self):
+        # Two hunks in the same file — the file header should sum their
+        # additions and deletions and show them between the path and (N hunks).
+        h1 = Hunk(
+            id="H1", file_path="src/foo.py", new_start=10, new_count=3,
+            additions=4, deletions=1, content=" ctx\n",
+        )
+        h2 = Hunk(
+            id="H2", file_path="src/foo.py", new_start=30, new_count=5,
+            additions=6, deletions=2, content=" ctx\n",
+        )
+        state = self._state_with([h1, h2], {"H1": "A", "H2": "B"})
+        result = _render_full_diff(state)
+        header = next(
+            t
+            for t in self._texts_from_group(result)
+            if t.plain.startswith("src/foo.py") and "hunks" in t.plain
+        )
+        assert "+10" in header.plain
+        assert "-3" in header.plain
+        assert "(2 hunks)" in header.plain
+        styles = [str(span.style) for span in header.spans]
+        assert any(s == "green" for s in styles)
+        assert any(s == "red" for s in styles)
