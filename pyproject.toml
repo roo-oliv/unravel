@@ -40,7 +40,7 @@ dev = [
 ]
 
 [project.scripts]
-unravel = "unravel.cli:app"
+unravel = "unravel.cli:entrypoint"
 
 [tool.hatch.version]
 source = "vcs"

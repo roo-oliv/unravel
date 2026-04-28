@@ -39,21 +39,38 @@ from unravel.renderer import (
     render_tree,
 )
 
+_CTX = {"help_option_names": ["-h", "--help"]}
+
+# Rich help panel labels — keep in module scope so the same label is reused
+# verbatim across commands (Typer groups by exact string).
+_PANEL_OUTPUT = "Output format"
+_PANEL_CACHE = "Cache control"
+_PANEL_MODEL = "Model & API"
+_PANEL_SOURCE = "Source"
+
 app = typer.Typer(
     name="unravel",
-    help="AI-powered CLI that decomposes PR diffs into causal threads.",
+    help=(
+        "AI-powered CLI that decomposes PR diffs into causal threads.\n\n"
+        "Run [bold]unravel COMMAND -h[/bold] (or [bold]unravel -h COMMAND[/bold]) "
+        "to see options for a specific command — e.g. [cyan]unravel pr -h[/cyan]."
+    ),
     no_args_is_help=True,
+    context_settings=_CTX,
+    rich_markup_mode="rich",
 )
 cache_app = typer.Typer(
     name="cache",
     help="Manage the local analysis cache.",
     no_args_is_help=True,
+    context_settings=_CTX,
 )
 app.add_typer(cache_app, name="cache")
 conf_app = typer.Typer(
     name="conf",
     help="View and edit persistent Unravel settings.",
     invoke_without_command=True,
+    context_settings=_CTX,
 )
 app.add_typer(conf_app, name="conf")
 console = Console(stderr=True)
@@ -82,40 +99,52 @@ def diff(
         str,
         typer.Argument(help="Git diff range (e.g. HEAD~3..HEAD, main..feature)"),
     ],
-    model: Annotated[
-        str | None, typer.Option("--model", "-m", help="Model to use")
-    ] = None,
-    provider: Annotated[
-        str | None, typer.Option("--provider", "-p", help="LLM provider")
-    ] = None,
+    staged: Annotated[
+        bool,
+        typer.Option(
+            "--staged", "-s",
+            help="Include only staged changes",
+            rich_help_panel=_PANEL_SOURCE,
+        ),
+    ] = False,
     json_output: Annotated[
-        bool, typer.Option("--json", "-j", help="Output raw JSON")
+        bool,
+        typer.Option(
+            "--json", "-j",
+            help="Output raw JSON",
+            rich_help_panel=_PANEL_OUTPUT,
+        ),
     ] = False,
     tree_only: Annotated[
-        bool, typer.Option("--tree-only", "-t", help="Compact tree view")
+        bool,
+        typer.Option(
+            "--tree-only", "-t",
+            help="Compact tree view",
+            rich_help_panel=_PANEL_OUTPUT,
+        ),
     ] = False,
     markdown_output: Annotated[
-        bool, typer.Option("--markdown", help="Output GitHub-flavored markdown")
-    ] = False,
-    thinking_budget: Annotated[
-        int | None,
-        typer.Option("--thinking-budget", help="Thinking token budget"),
-    ] = None,
-    max_output_tokens: Annotated[
-        int | None,
-        typer.Option("--max-output-tokens", help="Max output tokens"),
-    ] = None,
-    staged: Annotated[
-        bool, typer.Option("--staged", help="Include only staged changes")
+        bool,
+        typer.Option(
+            "--markdown",
+            help="Output GitHub-flavored markdown",
+            rich_help_panel=_PANEL_OUTPUT,
+        ),
     ] = False,
     no_tui: Annotated[
-        bool, typer.Option("--no-tui", help="Disable interactive TUI")
+        bool,
+        typer.Option(
+            "--no-tui",
+            help="Disable interactive TUI",
+            rich_help_panel=_PANEL_OUTPUT,
+        ),
     ] = False,
     fresh: Annotated[
         bool,
         typer.Option(
-            "--fresh",
+            "--fresh", "-f",
             help="Ignore any cached analysis and re-run the LLM (still saves the new result).",
+            rich_help_panel=_PANEL_CACHE,
         ),
     ] = False,
     no_cache: Annotated[
@@ -123,11 +152,49 @@ def diff(
         typer.Option(
             "--no-cache",
             help="Skip reading and writing the local analysis cache for this run.",
+            rich_help_panel=_PANEL_CACHE,
         ),
     ] = False,
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model", "-m",
+            help="Model to use",
+            rich_help_panel=_PANEL_MODEL,
+        ),
+    ] = None,
+    provider: Annotated[
+        str | None,
+        typer.Option(
+            "--provider", "-p",
+            help="LLM provider",
+            rich_help_panel=_PANEL_MODEL,
+        ),
+    ] = None,
+    thinking_budget: Annotated[
+        int | None,
+        typer.Option(
+            "--thinking-budget",
+            help="Thinking token budget",
+            rich_help_panel=_PANEL_MODEL,
+        ),
+    ] = None,
+    max_output_tokens: Annotated[
+        int | None,
+        typer.Option(
+            "--max-output-tokens",
+            help="Max output tokens",
+            rich_help_panel=_PANEL_MODEL,
+        ),
+    ] = None,
     api_key: Annotated[
         str | None,
-        typer.Option("--api-key", help="API key", envvar="UNRAVEL_API_KEY"),
+        typer.Option(
+            "--api-key",
+            help="API key",
+            envvar="UNRAVEL_API_KEY",
+            rich_help_panel=_PANEL_MODEL,
+        ),
     ] = None,
 ) -> None:
     """Analyze a git diff range and decompose into causal threads."""
@@ -166,47 +233,60 @@ def pr(
             metavar="PR",
         ),
     ],
-    model: Annotated[
-        str | None, typer.Option("--model", "-m", help="Model to use")
-    ] = None,
-    provider: Annotated[
-        str | None, typer.Option("--provider", "-p", help="LLM provider")
-    ] = None,
+    remote: Annotated[
+        str,
+        typer.Option(
+            "--remote", "-r",
+            help="Git remote name",
+            rich_help_panel=_PANEL_SOURCE,
+        ),
+    ] = "origin",
     json_output: Annotated[
-        bool, typer.Option("--json", "-j", help="Output raw JSON")
+        bool,
+        typer.Option(
+            "--json", "-j",
+            help="Output raw JSON",
+            rich_help_panel=_PANEL_OUTPUT,
+        ),
     ] = False,
     tree_only: Annotated[
-        bool, typer.Option("--tree-only", "-t", help="Compact tree view")
+        bool,
+        typer.Option(
+            "--tree-only", "-t",
+            help="Compact tree view",
+            rich_help_panel=_PANEL_OUTPUT,
+        ),
     ] = False,
     markdown_output: Annotated[
-        bool, typer.Option("--markdown", help="Output GitHub-flavored markdown")
+        bool,
+        typer.Option(
+            "--markdown",
+            help="Output GitHub-flavored markdown",
+            rich_help_panel=_PANEL_OUTPUT,
+        ),
     ] = False,
     github_comment: Annotated[
         bool,
         typer.Option(
             "--github-comment",
             help="Output a full GitHub PR comment body (markdown + hidden JSON cache).",
+            rich_help_panel=_PANEL_OUTPUT,
         ),
     ] = False,
-    thinking_budget: Annotated[
-        int | None,
-        typer.Option("--thinking-budget", help="Thinking token budget"),
-    ] = None,
-    max_output_tokens: Annotated[
-        int | None,
-        typer.Option("--max-output-tokens", help="Max output tokens"),
-    ] = None,
-    remote: Annotated[
-        str, typer.Option("--remote", help="Git remote name")
-    ] = "origin",
     no_tui: Annotated[
-        bool, typer.Option("--no-tui", help="Disable interactive TUI")
+        bool,
+        typer.Option(
+            "--no-tui",
+            help="Disable interactive TUI",
+            rich_help_panel=_PANEL_OUTPUT,
+        ),
     ] = False,
     fresh: Annotated[
         bool,
         typer.Option(
-            "--fresh",
+            "--fresh", "-f",
             help="Ignore any cached analysis and re-run the LLM (still saves the new result).",
+            rich_help_panel=_PANEL_CACHE,
         ),
     ] = False,
     no_cache: Annotated[
@@ -214,11 +294,49 @@ def pr(
         typer.Option(
             "--no-cache",
             help="Skip reading and writing the local analysis cache for this run.",
+            rich_help_panel=_PANEL_CACHE,
         ),
     ] = False,
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model", "-m",
+            help="Model to use",
+            rich_help_panel=_PANEL_MODEL,
+        ),
+    ] = None,
+    provider: Annotated[
+        str | None,
+        typer.Option(
+            "--provider", "-p",
+            help="LLM provider",
+            rich_help_panel=_PANEL_MODEL,
+        ),
+    ] = None,
+    thinking_budget: Annotated[
+        int | None,
+        typer.Option(
+            "--thinking-budget",
+            help="Thinking token budget",
+            rich_help_panel=_PANEL_MODEL,
+        ),
+    ] = None,
+    max_output_tokens: Annotated[
+        int | None,
+        typer.Option(
+            "--max-output-tokens",
+            help="Max output tokens",
+            rich_help_panel=_PANEL_MODEL,
+        ),
+    ] = None,
     api_key: Annotated[
         str | None,
-        typer.Option("--api-key", help="API key", envvar="UNRAVEL_API_KEY"),
+        typer.Option(
+            "--api-key",
+            help="API key",
+            envvar="UNRAVEL_API_KEY",
+            rich_help_panel=_PANEL_MODEL,
+        ),
     ] = None,
 ) -> None:
     """Analyze a GitHub PR and decompose into causal threads."""
@@ -567,3 +685,20 @@ def _run(
             f"[red]Unexpected error:[/red] {type(exc).__name__}: {exc}"
         )
         raise typer.Exit(1) from exc
+
+
+def entrypoint() -> None:
+    """Console-script entry point.
+
+    Rewrites ``unravel -h <cmd> [...]`` to ``unravel <cmd> [...] -h`` so the
+    inverse ordering shows per-command help. Click/Typer treats ``-h`` /
+    ``--help`` as an eager option that fires before any subcommand parser
+    runs, so without this swap ``unravel -h pr`` would just print the root
+    help.
+    """
+    import sys
+
+    args = sys.argv[1:]
+    if args and args[0] in ("-h", "--help") and len(args) > 1 and not args[1].startswith("-"):
+        sys.argv = [sys.argv[0], *args[1:], args[0]]
+    app()
