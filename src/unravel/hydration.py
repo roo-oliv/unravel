@@ -45,6 +45,11 @@ def hydrate_walkthrough(
                     )
                     resolved.append(ref)
                     continue
+                caption = walkthrough.hunk_captions.get(hunk_id, "")
+                if not caption:
+                    warnings.append(
+                        f"No caption provided for hunk '{hunk_id}'"
+                    )
                 # Copy content/metadata into a fresh Hunk so thread edits don't
                 # mutate the shared parsed instance.
                 resolved.append(
@@ -59,6 +64,9 @@ def hydrate_walkthrough(
                         context_before=source.context_before,
                         context_after=source.context_after,
                         language=source.language,
+                        additions=source.additions,
+                        deletions=source.deletions,
+                        caption=caption,
                     )
                 )
             step.hunks = resolved

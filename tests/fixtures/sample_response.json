@@ -1,6 +1,11 @@
 {
   "overview": "This PR improves auth error handling by replacing silent None returns with explicit exceptions, and updates the middleware to properly propagate error messages to clients.",
   "suggested_order": ["auth-error-handling", "middleware-error-propagation"],
+  "hunk_captions": {
+    "H1": "TokenValidator init guard",
+    "H2": "Typed AuthError on decode",
+    "H3": "Middleware exception handling"
+  },
   "threads": [
     {
       "id": "auth-error-handling",

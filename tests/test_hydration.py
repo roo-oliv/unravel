@@ -30,6 +30,7 @@ class TestHydrateWalkthrough:
             ],
             overview="test",
             suggested_order=["t1"],
+            hunk_captions={first.id: "Init guard"},
         )
 
         wt, warnings = hydrate_walkthrough(wt, parsed)
@@ -37,7 +38,39 @@ class TestHydrateWalkthrough:
         assert resolved.content == first.content
         assert resolved.language == first.language
         assert resolved.file_path == first.file_path
+        assert resolved.additions == first.additions
+        assert resolved.deletions == first.deletions
+        assert resolved.caption == "Init guard"
         assert warnings == []
+
+    def test_missing_caption_warns(self, simple_diff: str):
+        parsed = parse_diff(simple_diff)
+        first = parsed[0]
+
+        wt = Walkthrough(
+            threads=[
+                Thread(
+                    id="t1",
+                    title="T1",
+                    summary="s",
+                    root_cause="r",
+                    steps=[
+                        ThreadStep(
+                            hunks=[Hunk(id=first.id)],
+                            narration="test",
+                            order=1,
+                        )
+                    ],
+                )
+            ],
+            overview="test",
+            suggested_order=["t1"],
+        )
+
+        wt, warnings = hydrate_walkthrough(wt, parsed)
+        resolved = wt.threads[0].steps[0].hunks[0]
+        assert resolved.caption == ""
+        assert any(first.id in w for w in warnings)
 
     def test_unknown_id_warns(self, simple_diff: str):
         parsed = parse_diff(simple_diff)

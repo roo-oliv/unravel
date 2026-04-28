@@ -51,6 +51,12 @@ class TestParseDiff:
         hunks = parse_diff(simple_diff)
         assert [h.id for h in hunks] == [f"H{i + 1}" for i in range(len(hunks))]
 
+    def test_hunks_count_additions_and_deletions(self, simple_diff: str):
+        hunks = parse_diff(simple_diff)
+        assert (hunks[0].additions, hunks[0].deletions) == (2, 0)
+        assert (hunks[1].additions, hunks[1].deletions) == (3, 1)
+        assert (hunks[2].additions, hunks[2].deletions) == (9, 4)
+
     def test_binary_diff(self):
         binary_diff = """\
 diff --git a/image.png b/image.png

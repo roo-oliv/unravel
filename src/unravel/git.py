@@ -306,8 +306,14 @@ def parse_diff(raw_diff: str) -> list[Hunk]:
             continue
         for hunk in patched_file:
             content_lines: list[str] = []
+            additions = 0
+            deletions = 0
             for line in hunk:
                 content_lines.append(str(line))
+                if line.is_added:
+                    additions += 1
+                elif line.is_removed:
+                    deletions += 1
             hunks.append(
                 Hunk(
                     file_path=file_path,
@@ -317,6 +323,8 @@ def parse_diff(raw_diff: str) -> list[Hunk]:
                     new_count=hunk.target_length,
                     content="".join(content_lines),
                     language=language,
+                    additions=additions,
+                    deletions=deletions,
                 )
             )
     for i, hunk in enumerate(hunks, 1):

@@ -195,6 +195,15 @@ def _render_thread_rows(
             is_focused = row_cursor == state.row_index
             is_expanded = state.is_expanded(state.page_index, row_cursor)
 
+            if hunk.caption:
+                caption_line = Text()
+                caption_line.append("    ", style="dim")
+                caption_line.append(
+                    hunk.caption,
+                    style="reverse white" if is_focused else "dim",
+                )
+                parts.append(caption_line)
+
             file_line = Text()
             prefix = "▼ " if is_expanded else "▶ "
             file_line.append(
@@ -211,9 +220,15 @@ def _render_thread_rows(
             else:
                 file_line.append(hunk.file_path, style=path_style)
 
+            has_counter = bool(hunk.additions or hunk.deletions)
+            if has_counter:
+                file_line.append(f"  +{hunk.additions}", style="green")
+                file_line.append(f"-{hunk.deletions}", style="red")
+
             if hunk.new_count > 0:
+                lead = " " if has_counter else "  "
                 file_line.append(
-                    f"  (lines {hunk.new_start}-"
+                    f"{lead}(lines {hunk.new_start}-"
                     f"{hunk.new_start + hunk.new_count})",
                     style="dim",
                 )
