@@ -477,6 +477,16 @@ def _render_full_diff(state: WalkthroughState) -> RenderableType:
             is_focused = flat_index == state.row_index
             is_expanded = state.is_expanded(state.page_index, flat_index)
 
+            caption = state.walkthrough.hunk_captions.get(hunk.id, "")
+            if caption:
+                caption_line = Text()
+                caption_line.append("  ", style="dim")
+                caption_line.append(
+                    caption,
+                    style="reverse white" if is_focused else "dim",
+                )
+                parts.append(caption_line)
+
             row_line = Text()
             prefix = "▼ " if is_expanded else "▶ "
             row_line.append(
@@ -487,10 +497,15 @@ def _render_full_diff(state: WalkthroughState) -> RenderableType:
                 "bold reverse yellow" if is_focused else "bold cyan"
             )
             row_line.append(hunk.id, style=id_style)
+            has_counter = bool(hunk.additions or hunk.deletions)
+            if has_counter:
+                row_line.append(f"  +{hunk.additions}", style="green")
+                row_line.append(f"-{hunk.deletions}", style="red")
             if hunk.content != "[binary file]":
                 end = hunk.new_start + max(hunk.new_count - 1, 0)
+                lead = " " if has_counter else "  "
                 row_line.append(
-                    f"  (lines {hunk.new_start}-{end})", style="dim"
+                    f"{lead}(lines {hunk.new_start}-{end})", style="dim"
                 )
             if hunk.id not in covered:
                 row_line.append("  [orphaned]", style="bold red")
