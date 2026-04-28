@@ -14,9 +14,16 @@ from rich.tree import Tree
 
 from unravel.models import Hunk, Walkthrough
 
-COMMENT_MARKER_START = "<!-- unravel-cache-v1-start -->"
-COMMENT_MARKER_DATA_PREFIX = "<!-- unravel-cache-v1-data:"
-COMMENT_MARKER_END = "<!-- unravel-cache-v1-end -->"
+COMMENT_MARKER_START = "<!-- unravel-cache-v2-start -->"
+COMMENT_MARKER_DATA_PREFIX = "<!-- unravel-cache-v2-data:"
+COMMENT_MARKER_END = "<!-- unravel-cache-v2-end -->"
+COMMENT_MARKER_SHA_PREFIX = "<!-- unravel-cache-v2-sha:"
+COMMENT_MARKER_STATUS_PREFIX = "<!-- unravel-cache-v2-status:"
+COMMENT_MARKER_SUFFIX = " -->"
+
+STATUS_IN_PROGRESS = "in-progress"
+STATUS_DONE = "done"
+STATUS_FAILED = "failed"
 
 
 def render_json(walkthrough: Walkthrough) -> str:
@@ -214,9 +221,19 @@ def _pr_cli_ref(pr_number: int | None, repo_nwo: str | None) -> str:
     return f"unravel pr {pr_number}"
 
 
+def _envelope_open(head_sha: str, status: str) -> list[str]:
+    """Return the lines that open a v2 cache envelope (start + sha + status)."""
+    return [
+        COMMENT_MARKER_START,
+        f"{COMMENT_MARKER_SHA_PREFIX}{head_sha}{COMMENT_MARKER_SUFFIX}",
+        f"{COMMENT_MARKER_STATUS_PREFIX}{status}{COMMENT_MARKER_SUFFIX}",
+    ]
+
+
 def render_github_comment(
     walkthrough: Walkthrough,
     *,
+    head_sha: str,
     pr_files_url: str | None = None,
     pr_number: int | None = None,
     repo_nwo: str | None = None,
@@ -228,6 +245,9 @@ def render_github_comment(
     2. A CTA suggesting the CLI for a better review experience
     3. A collapsible ``<details>`` block with the full markdown walkthrough
     4. A base64-encoded JSON payload hidden inside an HTML comment
+
+    *head_sha* is the 40-char commit SHA the analysis was run against; it is
+    embedded so ``unravel pr`` can reject the cache when the PR has moved on.
     """
     threads = walkthrough.threads
     file_count = _thread_file_count(walkthrough)
@@ -242,7 +262,7 @@ def render_github_comment(
     encoded = base64.b64encode(json_payload.encode("utf-8")).decode("ascii")
 
     parts = [
-        COMMENT_MARKER_START,
+        *_envelope_open(head_sha, STATUS_DONE),
         "",
         f"### Changes unravelled in {len(threads)} {t_word} across {file_count} {f_word}",
         "",
@@ -259,8 +279,56 @@ def render_github_comment(
         md_body,
         "</details>",
         "",
-        f"{COMMENT_MARKER_DATA_PREFIX}{encoded} -->",
+        f"{COMMENT_MARKER_DATA_PREFIX}{encoded}{COMMENT_MARKER_SUFFIX}",
         COMMENT_MARKER_END,
     ]
 
+    return "\n".join(parts)
+
+
+def render_github_comment_placeholder(
+    *,
+    head_sha: str,
+    pr_number: int | None = None,
+    repo_nwo: str | None = None,
+) -> str:
+    """Render an in-progress placeholder comment posted at action start.
+
+    The body has the v2 envelope (start + sha + ``status:in-progress``) but no
+    ``data`` marker — the analysis hasn't run yet. The CI step PATCHes this
+    comment with the full walkthrough once analysis finishes.
+    """
+    cli_ref = _pr_cli_ref(pr_number, repo_nwo)
+    short = head_sha[:7] if head_sha else ""
+    parts = [
+        *_envelope_open(head_sha, STATUS_IN_PROGRESS),
+        "",
+        f"### Unravel is analysing this PR{f' (commit `{short}`)' if short else ''}…",
+        "",
+        (
+            "This comment will be updated when the walkthrough is ready. "
+            f"You can also run `{cli_ref}` locally to skip the wait."
+        ),
+        "",
+        COMMENT_MARKER_END,
+    ]
+    return "\n".join(parts)
+
+
+def render_github_comment_failed(
+    *,
+    head_sha: str,
+    reason: str | None = None,
+) -> str:
+    """Render a failure-state comment used when the action errors out."""
+    parts = [
+        *_envelope_open(head_sha, STATUS_FAILED),
+        "",
+        "### Unravel failed",
+        "",
+        reason
+        or "The Unravel action errored out — check the workflow logs for details.",
+        "",
+        COMMENT_MARKER_END,
+    ]
     return "\n".join(parts)

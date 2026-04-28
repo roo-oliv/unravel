@@ -33,6 +33,7 @@ from unravel.narrator import validate_walkthrough
 from unravel.providers import get_provider
 from unravel.renderer import (
     render_github_comment,
+    render_github_comment_placeholder,
     render_json,
     render_markdown,
     render_rich,
@@ -273,6 +274,28 @@ def pr(
             rich_help_panel=_PANEL_OUTPUT,
         ),
     ] = False,
+    github_comment_placeholder: Annotated[
+        bool,
+        typer.Option(
+            "--github-comment-placeholder",
+            help=(
+                "Emit an in-progress placeholder comment body (no LLM call). "
+                "Requires --head-sha. Used by the GitHub Action."
+            ),
+            rich_help_panel=_PANEL_OUTPUT,
+        ),
+    ] = False,
+    head_sha: Annotated[
+        str | None,
+        typer.Option(
+            "--head-sha",
+            help=(
+                "Head commit SHA stamped into the GitHub comment markers. "
+                "Inferred from the PR via gh when not given."
+            ),
+            rich_help_panel=_PANEL_SOURCE,
+        ),
+    ] = None,
     no_tui: Annotated[
         bool,
         typer.Option(
@@ -356,6 +379,8 @@ def pr(
         tree_only=tree_only,
         markdown_output=markdown_output,
         github_comment=github_comment,
+        github_comment_placeholder=github_comment_placeholder,
+        head_sha=head_sha,
         no_tui=no_tui,
         thinking_budget=thinking_budget,
         max_output_tokens=max_output_tokens,
@@ -499,6 +524,156 @@ def _format_completion(metadata: dict) -> str:
     return " · ".join(parts)
 
 
+def _resolve_head_sha(metadata: dict | None) -> str | None:
+    """Pull headRefOid out of the PR metadata dict, if present."""
+    if not metadata:
+        return None
+    sha = metadata.get("headRefOid")
+    if isinstance(sha, str) and sha.strip():
+        return sha.strip()
+    return None
+
+
+def _emit_placeholder_comment(
+    *,
+    pr_number: int | None,
+    repo: str | None,
+    remote: str,
+    head_sha: str | None,
+) -> None:
+    """Print the in-progress placeholder body to stdout."""
+    import sys as _sys
+
+    if not head_sha:
+        console.print(
+            "[red]Error:[/red] --github-comment-placeholder requires --head-sha."
+        )
+        raise typer.Exit(1)
+
+    repo_nwo = None
+    if pr_number is not None:
+        repo_nwo = get_repo_nwo(remote, repo)
+
+    body = render_github_comment_placeholder(
+        head_sha=head_sha,
+        pr_number=pr_number,
+        repo_nwo=repo_nwo,
+    )
+    _sys.stdout.write(body + "\n")
+
+
+def _prompt_inprogress_action(short_sha: str) -> str:
+    """Three-way prompt for the in-progress remote-cache hit.
+
+    Returns one of ``"wait"``, ``"local"``, ``"exit"``. Defaults to ``"local"``
+    in non-interactive contexts so CI/scripts don't hang on stdin.
+    """
+    import sys as _sys
+
+    if not _sys.stdin.isatty():
+        console.print(
+            "[yellow]Remote unravel in progress; running locally because "
+            "stdin is not a TTY.[/yellow]"
+        )
+        return "local"
+
+    console.print(
+        f"[bold]A remote unravel for this PR is in progress (commit {short_sha}).[/bold]"
+    )
+    console.print("  [bold]w[/bold] Wait for the remote analysis (recommended, polls 10s, 5 min timeout)")
+    console.print("  [bold]l[/bold] Unravel locally now anyway")
+    console.print("  [bold]e[/bold] Exit")
+    while True:
+        choice = typer.prompt("Choice [w/l/e]", default="w").strip().lower()
+        if choice in ("w", "wait"):
+            return "wait"
+        if choice in ("l", "local"):
+            return "local"
+        if choice in ("e", "exit", "q", "quit"):
+            return "exit"
+        console.print("[yellow]Please enter w, l, or e.[/yellow]")
+
+
+def _try_remote_cache(
+    *,
+    pr_number: int | None,
+    raw_diff: str,
+    expected_sha: str,
+    remote: str,
+    repo_nwo: str,
+    config,
+    source_label: str,
+):
+    """Run the remote-cache lookup with SHA gating + in-progress prompt.
+
+    Returns a Walkthrough on a successful (done) hit, otherwise None so the
+    caller falls through to a local LLM run.
+    """
+    remote_hit = remote_cache.fetch_from_pr_comment(
+        pr_number,
+        raw_diff,
+        expected_sha=expected_sha,
+        remote=remote,
+        repo=repo_nwo,
+    )
+    if remote_hit is None:
+        return None
+
+    if remote_hit.status == "done" and remote_hit.walkthrough is not None:
+        console.print("[dim]Loaded analysis from PR comment cache[/dim]")
+        walkthrough = remote_hit.walkthrough
+        cache.save(
+            raw_diff,
+            walkthrough.metadata.get("provider", config.provider),
+            walkthrough.metadata.get("model", config.resolved_model),
+            walkthrough,
+            source_label=source_label,
+        )
+        return walkthrough
+
+    if remote_hit.status == "in-progress":
+        choice = _prompt_inprogress_action(expected_sha[:7])
+        if choice == "exit":
+            raise typer.Exit(0)
+        if choice == "local":
+            return None
+        # wait
+        console.print(
+            "[dim]Waiting for remote unravel (polling every 10s, 5 min timeout)...[/dim]"
+        )
+        try:
+            walkthrough = remote_cache.poll_pr_comment(
+                remote_hit.comment_id,
+                repo=repo_nwo,
+                raw_diff=raw_diff,
+                expected_sha=expected_sha,
+                interval=10.0,
+                timeout=300.0,
+            )
+        except TimeoutError as exc:
+            console.print(f"[yellow]{exc}[/yellow] Falling back to local analysis.")
+            return None
+        except RuntimeError as exc:
+            console.print(f"[yellow]{exc}[/yellow] Falling back to local analysis.")
+            return None
+        console.print("[dim]Loaded analysis from PR comment cache[/dim]")
+        cache.save(
+            raw_diff,
+            walkthrough.metadata.get("provider", config.provider),
+            walkthrough.metadata.get("model", config.resolved_model),
+            walkthrough,
+            source_label=source_label,
+        )
+        return walkthrough
+
+    # status == "failed" — treat as miss.
+    console.print(
+        "[yellow]Remote unravel reported failure for this commit; "
+        "running locally.[/yellow]"
+    )
+    return None
+
+
 def _run(
     *,
     diff_source: str,
@@ -513,6 +688,8 @@ def _run(
     tree_only: bool,
     markdown_output: bool = False,
     github_comment: bool = False,
+    github_comment_placeholder: bool = False,
+    head_sha: str | None = None,
     no_tui: bool = False,
     thinking_budget: int | None,
     max_output_tokens: int | None,
@@ -523,6 +700,15 @@ def _run(
     import sys
 
     try:
+        if github_comment_placeholder:
+            _emit_placeholder_comment(
+                pr_number=pr_number,
+                repo=repo,
+                remote=remote,
+                head_sha=head_sha,
+            )
+            return
+
         config = load_config(
             provider=provider,
             model=model,
@@ -593,20 +779,29 @@ def _run(
                     f"({entry.provider}/{entry.model})[/dim]"
                 )
 
-        if walkthrough is None and diff_source == "pr" and not no_cache and not fresh:
+        # Resolve the head SHA for the PR up front so the remote cache and the
+        # outgoing GitHub comment can both use it.
+        if head_sha is None and diff_source == "pr":
+            head_sha = _resolve_head_sha(metadata)
+
+        if (
+            walkthrough is None
+            and diff_source == "pr"
+            and not no_cache
+            and not fresh
+            and head_sha
+            and repo_nwo
+        ):
             console.print("[dim]Checking for remote cache...[/dim]")
-            walkthrough = remote_cache.fetch_from_pr_comment(
-                pr_number, raw_diff, remote=remote, repo=repo_nwo
+            walkthrough = _try_remote_cache(
+                pr_number=pr_number,
+                raw_diff=raw_diff,
+                expected_sha=head_sha,
+                remote=remote,
+                repo_nwo=repo_nwo,
+                config=config,
+                source_label=source_label,
             )
-            if walkthrough is not None:
-                console.print("[dim]Loaded analysis from PR comment cache[/dim]")
-                cache.save(
-                    raw_diff,
-                    walkthrough.metadata.get("provider", config.provider),
-                    walkthrough.metadata.get("model", config.resolved_model),
-                    walkthrough,
-                    source_label=source_label,
-                )
 
         if walkthrough is None:
             with console.status(
@@ -639,10 +834,17 @@ def _run(
             console.print(f"[yellow]Warning:[/yellow] {w}")
 
         if github_comment:
+            if not head_sha:
+                console.print(
+                    "[red]Error:[/red] --github-comment requires a head SHA. "
+                    "Pass --head-sha or run inside a repo with gh access."
+                )
+                raise typer.Exit(1)
             # Bypass Rich to avoid line-wrapping the long base64 payload.
             sys.stdout.write(
                 render_github_comment(
                     walkthrough,
+                    head_sha=head_sha,
                     pr_files_url=pr_files_url,
                     pr_number=pr_number,
                     repo_nwo=repo_nwo,

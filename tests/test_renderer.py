@@ -9,15 +9,24 @@ from unravel.models import Hunk, Walkthrough
 from unravel.renderer import (
     COMMENT_MARKER_DATA_PREFIX,
     COMMENT_MARKER_END,
+    COMMENT_MARKER_SHA_PREFIX,
     COMMENT_MARKER_START,
+    COMMENT_MARKER_STATUS_PREFIX,
+    STATUS_DONE,
+    STATUS_IN_PROGRESS,
     UNRAVEL_INSTALL_URL,
     _format_hunk_ref,
     _github_diff_anchor,
     _hunk_line_range,
     _pr_cli_ref,
     render_github_comment,
+    render_github_comment_failed,
+    render_github_comment_placeholder,
     render_markdown,
 )
+
+FAKE_SHA = "a" * 40
+OTHER_SHA = "b" * 40
 
 
 def test_render_markdown_structure(sample_walkthrough: Walkthrough) -> None:
@@ -46,32 +55,39 @@ def test_render_markdown_overview(sample_walkthrough: Walkthrough) -> None:
 
 
 def test_render_github_comment_markers(sample_walkthrough: Walkthrough) -> None:
-    comment = render_github_comment(sample_walkthrough)
+    comment = render_github_comment(sample_walkthrough, head_sha=FAKE_SHA)
 
     assert comment.startswith(COMMENT_MARKER_START)
     assert COMMENT_MARKER_END in comment
     assert COMMENT_MARKER_DATA_PREFIX in comment
 
 
+def test_render_github_comment_sha_and_status(sample_walkthrough: Walkthrough) -> None:
+    comment = render_github_comment(sample_walkthrough, head_sha=FAKE_SHA)
+
+    assert f"{COMMENT_MARKER_SHA_PREFIX}{FAKE_SHA} -->" in comment
+    assert f"{COMMENT_MARKER_STATUS_PREFIX}{STATUS_DONE} -->" in comment
+
+
 def test_render_github_comment_cta(sample_walkthrough: Walkthrough) -> None:
     comment = render_github_comment(
-        sample_walkthrough, pr_number=42, repo_nwo="acme/repo"
+        sample_walkthrough, head_sha=FAKE_SHA, pr_number=42, repo_nwo="acme/repo"
     )
     assert "Review locally with `unravel pr acme/repo#42`" in comment
 
 
 def test_render_github_comment_cta_no_repo(sample_walkthrough: Walkthrough) -> None:
-    comment = render_github_comment(sample_walkthrough, pr_number=7)
+    comment = render_github_comment(sample_walkthrough, head_sha=FAKE_SHA, pr_number=7)
     assert "Review locally with `unravel pr 7`" in comment
 
 
 def test_render_github_comment_disclaimer(sample_walkthrough: Walkthrough) -> None:
-    comment = render_github_comment(sample_walkthrough)
+    comment = render_github_comment(sample_walkthrough, head_sha=FAKE_SHA)
     assert f"[install and run unravel locally]({UNRAVEL_INSTALL_URL})" in comment
 
 
 def test_render_github_comment_collapsible(sample_walkthrough: Walkthrough) -> None:
-    comment = render_github_comment(sample_walkthrough)
+    comment = render_github_comment(sample_walkthrough, head_sha=FAKE_SHA)
 
     assert "<details>" in comment
     assert "<summary>Click to expand walkthrough</summary>" in comment
@@ -79,14 +95,14 @@ def test_render_github_comment_collapsible(sample_walkthrough: Walkthrough) -> N
 
 
 def test_render_github_comment_header(sample_walkthrough: Walkthrough) -> None:
-    comment = render_github_comment(sample_walkthrough)
+    comment = render_github_comment(sample_walkthrough, head_sha=FAKE_SHA)
 
     assert "### Changes unravelled in 2 threads across" in comment
 
 
 def test_render_github_comment_roundtrip(sample_walkthrough: Walkthrough) -> None:
     """The base64 payload in the comment should decode back to the walkthrough."""
-    comment = render_github_comment(sample_walkthrough)
+    comment = render_github_comment(sample_walkthrough, head_sha=FAKE_SHA)
 
     for line in comment.splitlines():
         stripped = line.strip()
@@ -107,6 +123,25 @@ def test_render_github_comment_roundtrip(sample_walkthrough: Walkthrough) -> Non
             return
 
     raise AssertionError("No data marker found in comment")  # pragma: no cover
+
+
+def test_render_github_comment_placeholder_envelope() -> None:
+    body = render_github_comment_placeholder(
+        head_sha=FAKE_SHA, pr_number=12, repo_nwo="acme/repo"
+    )
+    assert body.startswith(COMMENT_MARKER_START)
+    assert COMMENT_MARKER_END in body
+    assert f"{COMMENT_MARKER_SHA_PREFIX}{FAKE_SHA} -->" in body
+    assert f"{COMMENT_MARKER_STATUS_PREFIX}{STATUS_IN_PROGRESS} -->" in body
+    assert COMMENT_MARKER_DATA_PREFIX not in body
+    assert "unravel pr acme/repo#12" in body
+
+
+def test_render_github_comment_failed() -> None:
+    body = render_github_comment_failed(head_sha=FAKE_SHA)
+    assert body.startswith(COMMENT_MARKER_START)
+    assert f"{COMMENT_MARKER_STATUS_PREFIX}failed -->" in body
+    assert "Unravel failed" in body
 
 
 def test_render_markdown_single_thread() -> None:
