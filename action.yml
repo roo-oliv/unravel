@@ -37,27 +37,76 @@ runs:
       # than the externally-managed system Python.
       run: uv pip install unravel-review
 
+    - name: Post in-progress placeholder comment
+      shell: bash
+      run: |
+        unravel pr "${REPO}#${PR_NUMBER}" \
+          --github-comment-placeholder \
+          --head-sha "$HEAD_SHA" \
+          > "$RUNNER_TEMP/unravel-placeholder.md"
+        comment_id=$(
+          gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            -F "body=@${RUNNER_TEMP}/unravel-placeholder.md" \
+            --jq .id
+        )
+        echo "UNRAVEL_COMMENT_ID=${comment_id}" >> "$GITHUB_ENV"
+      env:
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        GH_TOKEN: ${{ inputs.github-token }}
+
     - name: Run analysis and generate comment
       shell: bash
       run: |
-        args=(pr "${REPO}#${PR_NUMBER}" --github-comment --no-tui --no-cache)
+        args=(
+          pr "${REPO}#${PR_NUMBER}"
+          --github-comment
+          --head-sha "$HEAD_SHA"
+          --no-tui
+          --no-cache
+        )
         [ -n "$MODEL" ]    && args+=(--model "$MODEL")
         [ -n "$PROVIDER" ] && args+=(--provider "$PROVIDER")
         unravel "${args[@]}" > "$RUNNER_TEMP/unravel-comment.md"
       env:
         REPO: ${{ github.repository }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         UNRAVEL_API_KEY: ${{ inputs.api-key }}
         GH_TOKEN: ${{ inputs.github-token }}
         MODEL: ${{ inputs.model }}
         PROVIDER: ${{ inputs.provider }}
 
-    - name: Post PR comment
+    - name: Update PR comment with walkthrough
       shell: bash
       run: |
-        gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+        gh api --method PATCH \
+          "repos/${REPO}/issues/comments/${UNRAVEL_COMMENT_ID}" \
           -F "body=@${RUNNER_TEMP}/unravel-comment.md"
       env:
         REPO: ${{ github.repository }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
+        GH_TOKEN: ${{ inputs.github-token }}
+
+    - name: Mark PR comment as failed
+      if: failure() && env.UNRAVEL_COMMENT_ID != ''
+      shell: bash
+      run: |
+        cat > "$RUNNER_TEMP/unravel-failed.md" <<EOF
+        <!-- unravel-cache-v2-start -->
+        <!-- unravel-cache-v2-sha:${HEAD_SHA} -->
+        <!-- unravel-cache-v2-status:failed -->
+
+        ### Unravel failed
+
+        The Unravel action errored out — check the workflow logs for details.
+
+        <!-- unravel-cache-v2-end -->
+        EOF
+        gh api --method PATCH \
+          "repos/${REPO}/issues/comments/${UNRAVEL_COMMENT_ID}" \
+          -F "body=@${RUNNER_TEMP}/unravel-failed.md"
+      env:
+        REPO: ${{ github.repository }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         GH_TOKEN: ${{ inputs.github-token }}

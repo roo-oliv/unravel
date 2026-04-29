@@ -87,7 +87,7 @@ def get_pr_metadata(
         "--repo",
         _resolve_repo(repo, remote),
         "--json",
-        "title,author,headRefName,baseRefName,body",
+        "title,author,headRefName,baseRefName,body,headRefOid",
     ])
     import json
 
