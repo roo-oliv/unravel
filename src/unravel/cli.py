@@ -580,7 +580,10 @@ def _prompt_inprogress_action(short_sha: str) -> str:
     console.print(
         f"[bold]A remote unravel for this PR is in progress (commit {short_sha}).[/bold]"
     )
-    console.print("  [bold]w[/bold] Wait for the remote analysis (recommended, polls 10s, 5 min timeout)")
+    console.print(
+        "  [bold]w[/bold] Wait for the remote analysis "
+        "(recommended, polls 10s, 5 min timeout)"
+    )
     console.print("  [bold]l[/bold] Unravel locally now anyway")
     console.print("  [bold]e[/bold] Exit")
     while True:
@@ -852,7 +855,8 @@ def _run(
                 + "\n"
             )
         elif json_output:
-            stdout.print(render_json(walkthrough))
+            # Bypass Rich to avoid word-wrapping long JSON strings into invalid output.
+            sys.stdout.write(render_json(walkthrough) + "\n")
         elif markdown_output:
             stdout.print(render_markdown(walkthrough, pr_files_url=pr_files_url))
         elif tree_only:

@@ -1,0 +1,15 @@
+{
+  "name": "unravel-monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "lint": "pnpm --filter web lint",
+    "typecheck": "pnpm --filter web typecheck"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20"
+  }
+}

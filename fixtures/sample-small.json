@@ -1,0 +1,97 @@
+{
+  "overview": "Adds a /health endpoint to the FastAPI app and wires it into the route map. Small change to support liveness probes for the SaaS deployment, with a matching test.",
+  "suggested_order": ["add-health-endpoint", "add-health-test"],
+  "metadata": {
+    "provider": "claude-api",
+    "model": "claude-sonnet-4-6",
+    "elapsed_seconds": 12
+  },
+  "hunk_captions": {
+    "H1": "Health route handler",
+    "H2": "Register router",
+    "H3": "Health endpoint test"
+  },
+  "threads": [
+    {
+      "id": "add-health-endpoint",
+      "title": "Add /health endpoint",
+      "summary": "A new GET /health route returns {\"status\": \"ok\"} so external probes can verify the API is live without authenticating.",
+      "root_cause": "Production deploys need a liveness probe that does not depend on DB or Anthropic upstream — those can be slow or down without the API itself being broken.",
+      "dependencies": [],
+      "steps": [
+        {
+          "order": 1,
+          "narration": "Define the route handler. Stays free of dependencies — no DB session, no auth — so it works as a liveness check.",
+          "hunks": [
+            {
+              "id": "H1",
+              "file_path": "src/unravel/api/main.py",
+              "old_start": 23,
+              "old_count": 0,
+              "new_start": 24,
+              "new_count": 4,
+              "additions": 4,
+              "deletions": 0,
+              "language": "python",
+              "caption": "Health route handler",
+              "context_before": "    )\n",
+              "context_after": "\n    app.include_router(walkthroughs.router, tags=[\"walkthroughs\"])\n",
+              "content": "@@ -23,0 +24,4 @@\n+    @app.get(\"/health\")\n+    def health() -> dict:\n+        return {\"status\": \"ok\"}\n+\n"
+            }
+          ]
+        },
+        {
+          "order": 2,
+          "narration": "Wire the new endpoint up via the same `create_app` factory that produces the production instance.",
+          "hunks": [
+            {
+              "id": "H2",
+              "file_path": "src/unravel/api/main.py",
+              "old_start": 28,
+              "old_count": 1,
+              "new_start": 28,
+              "new_count": 2,
+              "additions": 1,
+              "deletions": 0,
+              "language": "python",
+              "caption": "Register router",
+              "context_before": "    return {\"status\": \"ok\"}\n",
+              "context_after": "    return app\n",
+              "content": "@@ -28,1 +28,2 @@\n     app.include_router(walkthroughs.router, tags=[\"walkthroughs\"])\n+    return app\n"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "add-health-test",
+      "title": "Cover /health with a test",
+      "summary": "Adds a smoke test that hits /health via TestClient and asserts the 200 + body.",
+      "root_cause": "Even trivial endpoints regress; this catches accidental router unmounting in future refactors.",
+      "dependencies": ["add-health-endpoint"],
+      "steps": [
+        {
+          "order": 1,
+          "narration": "Use FastAPI's TestClient to exercise the endpoint synchronously. Avoids spinning up an event loop for a one-line check.",
+          "hunks": [
+            {
+              "id": "H3",
+              "file_path": "tests/test_api_health.py",
+              "old_start": 0,
+              "old_count": 0,
+              "new_start": 1,
+              "new_count": 9,
+              "additions": 9,
+              "deletions": 0,
+              "language": "python",
+              "caption": "Health endpoint test",
+              "context_before": "",
+              "context_after": "",
+              "content": "@@ -0,0 +1,9 @@\n+from fastapi.testclient import TestClient\n+\n+from unravel.api.main import app\n+\n+\n+def test_health_returns_ok():\n+    client = TestClient(app)\n+    resp = client.get(\"/health\")\n+    assert resp.status_code == 200\n+    assert resp.json() == {\"status\": \"ok\"}\n"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

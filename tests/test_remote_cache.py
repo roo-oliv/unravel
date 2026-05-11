@@ -16,7 +16,6 @@ from unravel.remote_cache import (
     _parse_paginated_comments,
 )
 from unravel.renderer import (
-    COMMENT_MARKER_DATA_PREFIX,
     COMMENT_MARKER_END,
     COMMENT_MARKER_SHA_PREFIX,
     COMMENT_MARKER_START,

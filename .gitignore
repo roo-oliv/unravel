@@ -25,3 +25,18 @@ htmlcov/
 .ruff_cache/
 .mypy_cache/
 .worktrees/
+
+# Node / Next.js
+node_modules/
+.pnpm-store/
+.next/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# Local env
+.env.local
+.env.*.local
+
+# Fixtures may contain proprietary diff content — opt-in to commit
+# /fixtures/*.json
