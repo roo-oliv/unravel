@@ -852,7 +852,8 @@ def _run(
                 + "\n"
             )
         elif json_output:
-            stdout.print(render_json(walkthrough))
+            # Bypass Rich to avoid word-wrapping long JSON strings into invalid output.
+            sys.stdout.write(render_json(walkthrough) + "\n")
         elif markdown_output:
             stdout.print(render_markdown(walkthrough, pr_files_url=pr_files_url))
         elif tree_only:
