@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase
 
-
 DEFAULT_DATABASE_URL = (
     "postgresql+asyncpg://unravel:unravel@localhost:5544/unravel"
 )

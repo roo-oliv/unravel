@@ -9,7 +9,7 @@ delete the row and reload if you need a fresh import.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -25,7 +25,6 @@ from unravel.api.db_models import (
     ThreadStepHunk,
     Walkthrough,
 )
-
 
 WALKTHROUGH_EDITABLE_FIELDS = {"overview"}
 THREAD_EDITABLE_FIELDS = {"title", "summary", "root_cause"}
@@ -261,7 +260,7 @@ async def apply_edits_batch(
     step_ids = {s.id for t in walkthrough.threads for s in t.steps}
 
     batch_id = uuid4()
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     history: list[FieldEdit] = []
 
     for edit in edits:

@@ -12,7 +12,6 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
-    JSON,
     ForeignKey,
     Index,
     Integer,
@@ -52,12 +51,12 @@ class Walkthrough(Base):
         server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    threads: Mapped[list["Thread"]] = relationship(
+    threads: Mapped[list[Thread]] = relationship(
         back_populates="walkthrough",
         cascade="all, delete-orphan",
         order_by="Thread.position",
     )
-    hunks: Mapped[list["Hunk"]] = relationship(
+    hunks: Mapped[list[Hunk]] = relationship(
         back_populates="walkthrough",
         cascade="all, delete-orphan",
     )
@@ -87,7 +86,7 @@ class Thread(Base):
     )
 
     walkthrough: Mapped[Walkthrough] = relationship(back_populates="threads")
-    steps: Mapped[list["ThreadStep"]] = relationship(
+    steps: Mapped[list[ThreadStep]] = relationship(
         back_populates="thread",
         cascade="all, delete-orphan",
         order_by="ThreadStep.step_order",
@@ -118,7 +117,7 @@ class ThreadStep(Base):
     )
 
     thread: Mapped[Thread] = relationship(back_populates="steps")
-    hunk_links: Mapped[list["ThreadStepHunk"]] = relationship(
+    hunk_links: Mapped[list[ThreadStepHunk]] = relationship(
         back_populates="step",
         cascade="all, delete-orphan",
         order_by="ThreadStepHunk.position",

@@ -10,10 +10,9 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from unravel.api.db import Base, database_url
-
 # Import models so their tables register on Base.metadata.
 from unravel.api import db_models  # noqa: F401
+from unravel.api.db import Base, database_url
 
 config = context.config
 if config.config_file_name is not None:

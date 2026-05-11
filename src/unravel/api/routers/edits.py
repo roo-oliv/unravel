@@ -20,9 +20,9 @@ from unravel.api.services.walkthrough_store import (
     apply_edits_batch,
     field_edit_to_dto,
     load_edit_history,
+    load_full_walkthrough,
     walkthrough_to_dto,
 )
-from unravel.api.services.walkthrough_store import load_full_walkthrough
 
 router = APIRouter()
 
