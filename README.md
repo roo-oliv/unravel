@@ -1,4 +1,4 @@
-# Unravel
+# <img width="48" height="48" alt="unravel-logo" src="https://github.com/user-attachments/assets/0135fcf7-a95a-4faf-b863-43366c73d2f8" /> Unravel
 
 AI-powered CLI that decomposes PR diffs into **causal threads** for human code reviewers.
 
