@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
-import { useState } from "react";
+import { memo, useState } from "react";
 
 import { ApiError, api, type CommentDTO } from "@/lib/api";
 
@@ -77,7 +77,7 @@ export function CommentsDrawer({
     error instanceof ApiError && error.status === 503;
 
   return (
-    <aside className="flex h-full w-[360px] shrink-0 flex-col border-l bg-muted/15">
+    <aside className="flex h-full min-h-0 w-[360px] shrink-0 flex-col border-l bg-muted/15">
       <header className="flex items-center justify-between border-b px-3 py-2">
         <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Comments
@@ -227,7 +227,11 @@ function EmptyState({ title, body }: { title: string; body: string }) {
   );
 }
 
-function CommentCard({ comment }: { comment: CommentDTO }) {
+const CommentCard = memo(function CommentCard({
+  comment,
+}: {
+  comment: CommentDTO;
+}) {
   const stateBadge =
     comment.sync_state === "syncing" || comment.sync_state === "local" ? (
       <span className="rounded-full bg-amber-100 px-1.5 py-px text-[9px] uppercase tracking-wider text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
@@ -296,7 +300,7 @@ function CommentCard({ comment }: { comment: CommentDTO }) {
       )}
     </article>
   );
-}
+});
 
 function basename(path: string): string {
   const i = path.lastIndexOf("/");
