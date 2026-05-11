@@ -26,12 +26,16 @@ class WalkthroughHasNoPrError(LookupError):
 
 
 async def refresh_pr(
-    session: AsyncSession, walkthrough_id: UUID
+    session: AsyncSession,
+    walkthrough_id: UUID,
+    *,
+    token: str | None = None,
 ) -> Walkthrough:
     """Fetch the PR + its comments from GitHub and upsert them into Postgres.
 
     Returns the refreshed Walkthrough. Raises ``WalkthroughHasNoPrError`` if the
-    walkthrough has no recorded repo/PR number.
+    walkthrough has no recorded repo/PR number. ``token`` defaults to the
+    server-wide GITHUB_TOKEN env when not supplied.
     """
     walkthrough = await _load(session, walkthrough_id)
     if not (walkthrough.repo_full_name and walkthrough.pr_number):
@@ -40,7 +44,7 @@ async def refresh_pr(
     repo = walkthrough.repo_full_name
     number = walkthrough.pr_number
 
-    pr = await github_client.fetch_pr(repo, number)
+    pr = await github_client.fetch_pr(repo, number, token=token)
     walkthrough.pr_state = pr.state
     walkthrough.pr_is_draft = pr.is_draft
     walkthrough.pr_merged_at = pr.merged_at
@@ -54,9 +58,13 @@ async def refresh_pr(
     # Pull comments in three buckets — issue (top-level), reviews, review
     # comments (line-anchored). We unify them into one table; ``github_kind``
     # plus ``anchor_path``/``anchor_line`` are enough to render them.
-    issue_comments = await github_client.list_issue_comments(repo, number)
-    reviews = await github_client.list_reviews(repo, number)
-    review_comments = await github_client.list_review_comments(repo, number)
+    issue_comments = await github_client.list_issue_comments(
+        repo, number, token=token
+    )
+    reviews = await github_client.list_reviews(repo, number, token=token)
+    review_comments = await github_client.list_review_comments(
+        repo, number, token=token
+    )
 
     await _upsert_comments(
         session,
@@ -74,6 +82,7 @@ async def post_issue_comment(
     body: str,
     *,
     local_author_login: str,
+    token: str | None = None,
 ) -> PrComment:
     """Append a top-level issue comment, persisted both locally and to GitHub.
 
@@ -99,7 +108,10 @@ async def post_issue_comment(
 
     try:
         comment = await github_client.create_issue_comment(
-            walkthrough.repo_full_name, walkthrough.pr_number, body
+            walkthrough.repo_full_name,
+            walkthrough.pr_number,
+            body,
+            token=token,
         )
     except Exception as exc:  # noqa: BLE001 — surface every failure to the UI
         logger.exception("create_issue_comment failed")

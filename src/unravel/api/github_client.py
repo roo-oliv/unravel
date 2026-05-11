@@ -1,11 +1,10 @@
-"""GitHub REST API client for Phase 0.
+"""GitHub REST API client.
 
-Phase 0 strategy: a single ``GITHUB_TOKEN`` env var (classic PAT or fine-grained
-token) authenticates every call. No GitHub App, no OAuth — that arrives in
-Phase 1 when we add real multi-user.
-
-For private repos the PAT needs ``repo`` scope; for public repos ``public_repo``
-plus ``read:org`` (to read review metadata) is sufficient.
+Auth resolution: every call accepts an explicit ``token``. When the caller
+passes a logged-in user's OAuth token, comments are attributed to them.
+When ``token=None`` we fall back to the ``GITHUB_TOKEN`` env var (server PAT)
+— used by the Phase 0 dev path and as a back-stop in self-host installs
+without OAuth set up yet.
 """
 
 from __future__ import annotations
@@ -66,25 +65,28 @@ class Comment:
     github_updated_at: datetime | None
 
 
-def _token() -> str:
+def _resolve_token(override: str | None) -> str:
+    if override:
+        return override
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     if not token:
         raise GitHubConfigError(
-            "GITHUB_TOKEN env var is not set. Generate a PAT at "
-            "https://github.com/settings/tokens and set it in your .env."
+            "No GitHub credentials. Sign in via /auth/github to use your "
+            "OAuth identity, or set GITHUB_TOKEN in .env as a server-wide "
+            "fallback PAT."
         )
     return token
 
 
-def _client() -> httpx.AsyncClient:
+def _client(token: str | None) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         base_url=GITHUB_API,
         timeout=DEFAULT_TIMEOUT,
         headers={
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "Authorization": f"Bearer {_token()}",
-            "User-Agent": "unravel-saas/0.0.0-phase0",
+            "Authorization": f"Bearer {_resolve_token(token)}",
+            "User-Agent": "unravel-saas/0.0.0-phase1",
         },
     )
 
@@ -118,9 +120,11 @@ def _pr_state(payload: dict[str, Any]) -> str:
     return "open"
 
 
-async def fetch_pr(repo: str, number: int) -> PullRequest:
+async def fetch_pr(
+    repo: str, number: int, *, token: str | None = None
+) -> PullRequest:
     owner, name = _split_repo(repo)
-    async with _client() as http:
+    async with _client(token) as http:
         resp = await http.get(f"/repos/{owner}/{name}/pulls/{number}")
         if resp.status_code != 200:
             raise GitHubError(
@@ -142,39 +146,47 @@ async def fetch_pr(repo: str, number: int) -> PullRequest:
     )
 
 
-async def list_issue_comments(repo: str, number: int) -> list[Comment]:
+async def list_issue_comments(
+    repo: str, number: int, *, token: str | None = None
+) -> list[Comment]:
     """Top-level PR comments (no anchor)."""
     owner, name = _split_repo(repo)
-    async with _client() as http:
+    async with _client(token) as http:
         comments = await _paginate(
             http, f"/repos/{owner}/{name}/issues/{number}/comments"
         )
     return [_issue_comment_to_dto(c) for c in comments]
 
 
-async def list_review_comments(repo: str, number: int) -> list[Comment]:
+async def list_review_comments(
+    repo: str, number: int, *, token: str | None = None
+) -> list[Comment]:
     """Inline review comments anchored to file+line."""
     owner, name = _split_repo(repo)
-    async with _client() as http:
+    async with _client(token) as http:
         comments = await _paginate(
             http, f"/repos/{owner}/{name}/pulls/{number}/comments"
         )
     return [_review_comment_to_dto(c) for c in comments]
 
 
-async def list_reviews(repo: str, number: int) -> list[Comment]:
+async def list_reviews(
+    repo: str, number: int, *, token: str | None = None
+) -> list[Comment]:
     """PR-level reviews (summary body + state). Only those with a non-empty body."""
     owner, name = _split_repo(repo)
-    async with _client() as http:
+    async with _client(token) as http:
         reviews = await _paginate(
             http, f"/repos/{owner}/{name}/pulls/{number}/reviews"
         )
     return [_review_to_dto(r) for r in reviews if (r.get("body") or "").strip()]
 
 
-async def create_issue_comment(repo: str, number: int, body: str) -> Comment:
+async def create_issue_comment(
+    repo: str, number: int, body: str, *, token: str | None = None
+) -> Comment:
     owner, name = _split_repo(repo)
-    async with _client() as http:
+    async with _client(token) as http:
         resp = await http.post(
             f"/repos/{owner}/{name}/issues/{number}/comments",
             json={"body": body},

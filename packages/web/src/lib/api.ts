@@ -33,6 +33,17 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch {
       detail = await res.text().catch(() => "");
     }
+    if (
+      res.status === 401 &&
+      typeof window !== "undefined" &&
+      !path.startsWith("/auth/") &&
+      !window.location.pathname.startsWith("/auth/login")
+    ) {
+      const next = encodeURIComponent(
+        window.location.pathname + window.location.search,
+      );
+      window.location.href = `/auth/login?next=${next}`;
+    }
     throw new ApiError(res.status, detail || `request to ${path} failed`);
   }
   // 204 returns no body; guard json() to avoid SyntaxError.
@@ -80,7 +91,25 @@ export const api = {
         body: JSON.stringify({ body }),
       },
     ),
+  me: () => request<MeDTO>("/auth/me"),
+  logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
 };
+
+export const API_BASE_URL = API_URL;
+
+export function githubLoginUrl(next?: string): string {
+  const qs = next ? `?next=${encodeURIComponent(next)}` : "";
+  return `${API_URL}/auth/github${qs}`;
+}
+
+export interface MeDTO {
+  id: string;
+  github_login: string;
+  name: string | null;
+  email: string | null;
+  avatar_url: string | null;
+  is_dev_user: boolean;
+}
 
 export type PrState = "open" | "draft" | "merged" | "closed" | null;
 

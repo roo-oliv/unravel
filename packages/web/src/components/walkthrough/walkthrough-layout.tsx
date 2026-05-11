@@ -8,6 +8,7 @@ import { useHotkeys } from "react-hotkeys-hook";
 
 import { api, type FieldEditDTO } from "@/lib/api";
 
+import { UserMenu } from "../user-menu";
 import { CommandPalette } from "./command-palette";
 import { CommentsDrawer } from "./comments-drawer";
 import { PendingEditsBar } from "./pending-edits-bar";
@@ -204,6 +205,9 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
             </kbd>
             <span className="hidden sm:inline">help</span>
           </button>
+          <div className="ml-2 border-l pl-2">
+            <UserMenu next={slug ? `/walkthrough/${slug}` : "/repos"} />
+          </div>
         </div>
       </header>
 

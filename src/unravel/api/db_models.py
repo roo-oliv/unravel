@@ -313,6 +313,74 @@ class PrComment(Base):
     )
 
 
+class User(Base):
+    """A GitHub user signed into Unravel.
+
+    ``encrypted_access_token`` stores the GitHub OAuth token enciphered with
+    Fernet (see ``auth.crypto``); decryption is intentionally explicit at the
+    call sites that need to hit the GitHub API on the user's behalf.
+    """
+
+    __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("github_id", name="uq_users_github_id"),
+        Index("ix_users_github_login", "github_login"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    github_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    github_login: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    token_scopes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class Session(Base):
+    """A server-side session row backing the HttpOnly cookie.
+
+    The cookie value is the signed (itsdangerous) sid; this row is the source
+    of truth for expiry, last-seen, and the FK to ``users``. Deleting the row
+    invalidates the session immediately.
+    """
+
+    __tablename__ = "sessions"
+    __table_args__ = (
+        Index("ix_sessions_user_id", "user_id"),
+        Index("ix_sessions_expires_at", "expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
 __all__ = [
     "Walkthrough",
     "Thread",
@@ -321,4 +389,6 @@ __all__ = [
     "ThreadStepHunk",
     "FieldEdit",
     "PrComment",
+    "User",
+    "Session",
 ]

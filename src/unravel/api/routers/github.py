@@ -72,7 +72,9 @@ async def get_pr(
     )
     if stale:
         try:
-            walkthrough = await refresh_pr(db, walkthrough_uuid)
+            walkthrough = await refresh_pr(
+                db, walkthrough_uuid, token=user.github_access_token
+            )
         except (GitHubError, GitHubConfigError) as exc:
             # Fall back to whatever snapshot we have. The DTO carries
             # ``synced_at`` so the UI can show the last successful refresh.
@@ -88,7 +90,9 @@ async def force_refresh_pr(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        walkthrough = await refresh_pr(db, walkthrough_uuid)
+        walkthrough = await refresh_pr(
+            db, walkthrough_uuid, token=user.github_access_token
+        )
     except WalkthroughHasNoPrError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -142,7 +146,11 @@ async def create_comment(
 ) -> dict:
     try:
         row = await post_issue_comment(
-            db, walkthrough_uuid, body.body, local_author_login=user.github_login
+            db,
+            walkthrough_uuid,
+            body.body,
+            local_author_login=user.github_login,
+            token=user.github_access_token,
         )
     except WalkthroughHasNoPrError as exc:
         raise HTTPException(
