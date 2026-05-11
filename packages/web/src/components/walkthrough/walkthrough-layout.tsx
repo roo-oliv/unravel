@@ -10,7 +10,6 @@ import { api, type FieldEditDTO } from "@/lib/api";
 
 import { UserMenu } from "../user-menu";
 import { CommandPalette } from "./command-palette";
-import { CommentsDrawer } from "./comments-drawer";
 import { PendingEditsBar } from "./pending-edits-bar";
 import { PrStatusBadge } from "./pr-status-badge";
 import { ShortcutsHelp } from "./shortcuts-help";
@@ -27,13 +26,8 @@ function historyKeyFor(edit: FieldEditDTO): string {
   return `${edit.target_kind}:${edit.target_id}:${edit.field}`;
 }
 
-function gridColumnsFor(opts: {
-  sidebarCollapsed: boolean;
-  commentsOpen: boolean;
-}): string {
-  const left = opts.sidebarCollapsed ? "3rem" : "280px";
-  const right = opts.commentsOpen ? " 360px" : "";
-  return `${left} 1fr${right}`;
+function gridColumnsFor(opts: { sidebarCollapsed: boolean }): string {
+  return `${opts.sidebarCollapsed ? "3rem" : "280px"} 1fr`;
 }
 
 export function WalkthroughLayout({ walkthrough, slug }: Props) {
@@ -49,7 +43,6 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
   const [collapseSignal, setCollapseSignal] = useState(0);
   const [expandSignal, setExpandSignal] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [commentsOpen, setCommentsOpen] = useState(false);
 
   const hunkIndex = useMemo(() => indexHunks(walkthrough), [walkthrough]);
 
@@ -76,24 +69,6 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
     const tid = order[activeIndex];
     return walkthrough.threads.find((t) => t.id === tid) ?? null;
   }, [activeIndex, order, walkthrough.threads]);
-
-  // When a thread is active, scope inline review comments to whichever file
-  // path the first hunk touches. Coarse but useful — line-level mapping
-  // requires resolving each hunk's range against the comment's anchor line.
-  const activeFilterPath = useMemo<string | null>(() => {
-    if (!activeThread) return null;
-    for (const step of activeThread.steps) {
-      for (const ref of step.hunks) {
-        if (typeof ref === "string") {
-          const h = hunkIndex[ref];
-          if (h?.file_path) return h.file_path;
-        } else if (ref.file_path) {
-          return ref.file_path;
-        }
-      }
-    }
-    return null;
-  }, [activeThread, hunkIndex]);
 
   // TUI parity bindings.
   useHotkeys("tab", (e) => {
@@ -136,9 +111,16 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
     e.preventDefault();
     setSidebarCollapsed((c) => !c);
   });
+  // ``d`` keeps a useful job in the new inline-comments world: jump straight
+  // to the PR conversation feed in Overview. Inline comments in thread view
+  // are always rendered so the binding is a no-op there.
   useHotkeys("d", (e) => {
     e.preventDefault();
-    setCommentsOpen((c) => !c);
+    if (activeIndex < 0) {
+      document
+        .getElementById("pr-conversation")
+        ?.scrollIntoView({ behavior: "smooth" });
+    }
   });
 
   const position =
@@ -171,18 +153,21 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
           )}
         </nav>
         <div className="flex items-center gap-3 text-muted-foreground">
-          {walkthrough.pr && (
+          {walkthrough.pr && activeIndex < 0 && (
             <button
               type="button"
-              onClick={() => setCommentsOpen((c) => !c)}
-              aria-pressed={commentsOpen}
+              onClick={() =>
+                document
+                  .getElementById("pr-conversation")
+                  ?.scrollIntoView({ behavior: "smooth" })
+              }
               className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
-              title="Toggle comments (d)"
+              title="Scroll to PR comments (d)"
             >
               <kbd className="rounded border bg-background px-1 font-mono text-[10px]">
                 d
               </kbd>
-              <span className="hidden sm:inline">comments</span>
+              <span className="hidden sm:inline">conversation</span>
             </button>
           )}
           <button
@@ -220,10 +205,7 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
       <div
         className="row-start-3 grid overflow-hidden transition-[grid-template-columns] duration-150"
         style={{
-          gridTemplateColumns: gridColumnsFor({
-            sidebarCollapsed,
-            commentsOpen: commentsOpen && !!walkthrough.pr && !!walkthroughUuid,
-          }),
+          gridTemplateColumns: gridColumnsFor({ sidebarCollapsed }),
         }}
       >
         <aside className="flex flex-col overflow-hidden border-r bg-muted/20">
@@ -280,14 +262,6 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
             historyByKey={historyByKey}
           />
         </main>
-        {walkthroughUuid && walkthrough.pr && commentsOpen && (
-          <CommentsDrawer
-            walkthroughUuid={walkthroughUuid}
-            open={commentsOpen}
-            onClose={() => setCommentsOpen(false)}
-            filterPath={activeFilterPath}
-          />
-        )}
       </div>
 
       <footer className="row-start-4 flex items-center justify-between gap-4 border-t bg-muted/20 px-4 font-mono text-[10px] text-muted-foreground">
@@ -307,12 +281,6 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
             <kbd className="rounded border bg-background px-1 py-0.5">f</kbd>
             <span>focus</span>
           </span>
-          {walkthrough.pr && (
-            <span className="hidden items-center gap-1 sm:flex">
-              <kbd className="rounded border bg-background px-1 py-0.5">d</kbd>
-              <span>comments</span>
-            </span>
-          )}
           <span className="hidden items-center gap-1 md:flex">
             <kbd className="rounded border bg-background px-1 py-0.5">⌘K</kbd>
             <span>palette</span>
@@ -336,8 +304,6 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         onSelect={setActiveIndex}
-        commentsOpen={commentsOpen}
-        onToggleComments={() => setCommentsOpen((c) => !c)}
       />
       <ShortcutsHelp open={helpOpen} onOpenChange={setHelpOpen} />
     </div>

@@ -91,6 +91,27 @@ export const api = {
         body: JSON.stringify({ body }),
       },
     ),
+  replyToComment: (
+    walkthroughUuid: string,
+    parentCommentId: string,
+    body: string,
+  ) =>
+    request<CommentDTO>(
+      `/walkthroughs/${encodeURIComponent(walkthroughUuid)}/comments/${encodeURIComponent(parentCommentId)}/reply`,
+      {
+        method: "POST",
+        body: JSON.stringify({ body }),
+      },
+    ),
+  fetchPrFile: (
+    walkthroughUuid: string,
+    path: string,
+    start: number,
+    end: number,
+  ) =>
+    request<PrFileSliceDTO>(
+      `/walkthroughs/${encodeURIComponent(walkthroughUuid)}/file?path=${encodeURIComponent(path)}&start=${start}&end=${end}`,
+    ),
   me: () => request<MeDTO>("/auth/me"),
   logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
 };
@@ -133,6 +154,11 @@ export interface CommentAnchor {
   path: string | null;
   line: number | null;
   side: string | null;
+  /** Multi-line anchor start. Null on single-line comments — only set when
+   * the comment spans a range; in that case the thread covers
+   * ``[start_line, line]`` on the indicated side. */
+  start_line: number | null;
+  start_side: string | null;
 }
 
 export interface CommentDTO {
@@ -146,10 +172,19 @@ export interface CommentDTO {
   anchor: CommentAnchor | null;
   review_state: string | null;
   in_reply_to_github_id: number | null;
+  pull_request_review_id: number | null;
+  is_outdated: boolean;
   sync_state: "local" | "syncing" | "synced" | "failed";
   sync_error: string | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface PrFileSliceDTO {
+  path: string;
+  ref: string;
+  total: number;
+  lines: { line: number; content: string }[];
 }
 
 export interface PrSourceDTO {

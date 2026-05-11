@@ -11,8 +11,6 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (index: number) => void;
-  onToggleComments?: () => void;
-  commentsOpen?: boolean;
 }
 
 const itemClass = cn(
@@ -32,8 +30,6 @@ export function CommandPalette({
   open,
   onOpenChange,
   onSelect,
-  onToggleComments,
-  commentsOpen,
 }: Props) {
   const order = useMemo(
     () =>
@@ -102,26 +98,6 @@ export function CommandPalette({
               summary
             </span>
           </Command.Item>
-          {walkthrough.pr && onToggleComments && (
-            <Command.Item
-              value="comments toggle drawer github pr"
-              onSelect={() => {
-                onToggleComments();
-                onOpenChange(false);
-              }}
-              className={itemClass}
-            >
-              <span className="w-7 shrink-0 self-center text-xs font-mono text-muted-foreground">
-                d
-              </span>
-              <span className="min-w-0 flex-1 self-center font-medium">
-                {commentsOpen ? "Hide" : "Show"} comments
-              </span>
-              <span className="ml-2 shrink-0 self-center text-[10px] text-muted-foreground">
-                GitHub
-              </span>
-            </Command.Item>
-          )}
         </Command.Group>
 
         <Command.Group

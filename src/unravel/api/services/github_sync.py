@@ -134,6 +134,153 @@ async def post_issue_comment(
     return row
 
 
+async def post_review_comment_reply(
+    session: AsyncSession,
+    walkthrough_id: UUID,
+    parent_comment_id: UUID,
+    body: str,
+    *,
+    local_author_login: str,
+    token: str | None = None,
+) -> PrComment:
+    """Reply to an existing inline review comment.
+
+    Mirrors ``post_issue_comment``: insert a ``syncing`` row, hit GitHub, flip
+    the row to ``synced``/``failed``. The local row inherits the parent's
+    anchor and ``pull_request_review_id`` so the UI can render it inside the
+    correct thread even before the round-trip completes.
+    """
+    walkthrough = await _load(session, walkthrough_id)
+    if not (walkthrough.repo_full_name and walkthrough.pr_number):
+        raise WalkthroughHasNoPrError(str(walkthrough_id))
+
+    parent = await session.get(PrComment, parent_comment_id)
+    if parent is None or parent.walkthrough_id != walkthrough_id:
+        raise CommentNotFoundError(str(parent_comment_id))
+    if parent.github_kind != "review_comment" or parent.github_id is None:
+        # GitHub only supports replies on inline review threads; issue
+        # comments are flat, and reviews can't be replied to directly.
+        raise InvalidReplyTargetError(
+            f"Comment {parent_comment_id} is not a synced review_comment."
+        )
+
+    row = PrComment(
+        walkthrough_id=walkthrough_id,
+        github_kind="review_comment",
+        author_login=local_author_login,
+        body=body,
+        sync_state="syncing",
+        local_author_login=local_author_login,
+        in_reply_to_github_id=parent.github_id,
+        # Inherit anchor + review grouping so the optimistic row shows up in
+        # the correct thread immediately.
+        anchor_path=parent.anchor_path,
+        anchor_line=parent.anchor_line,
+        anchor_side=parent.anchor_side,
+        anchor_start_line=parent.anchor_start_line,
+        anchor_start_side=parent.anchor_start_side,
+        pull_request_review_id=parent.pull_request_review_id,
+    )
+    session.add(row)
+    await session.commit()
+    await session.refresh(row)
+
+    try:
+        reply = await github_client.create_review_comment_reply(
+            walkthrough.repo_full_name,
+            walkthrough.pr_number,
+            parent.github_id,
+            body,
+            token=token,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface every failure to the UI
+        logger.exception("create_review_comment_reply failed")
+        row.sync_state = "failed"
+        row.sync_error = str(exc)[:1000]
+        await session.commit()
+        await session.refresh(row)
+        return row
+
+    row.github_id = reply.github_id
+    row.author_login = reply.author_login or row.author_login
+    row.author_avatar_url = reply.author_avatar_url
+    row.html_url = reply.html_url
+    row.anchor_path = reply.anchor_path or row.anchor_path
+    row.anchor_line = reply.anchor_line or row.anchor_line
+    row.anchor_side = reply.anchor_side or row.anchor_side
+    row.anchor_start_line = reply.anchor_start_line or row.anchor_start_line
+    row.anchor_start_side = reply.anchor_start_side or row.anchor_start_side
+    row.is_outdated = reply.is_outdated
+    row.in_reply_to_github_id = (
+        reply.in_reply_to_github_id or row.in_reply_to_github_id
+    )
+    row.pull_request_review_id = (
+        reply.pull_request_review_id or row.pull_request_review_id
+    )
+    row.github_created_at = reply.github_created_at
+    row.github_updated_at = reply.github_updated_at
+    row.sync_state = "synced"
+    row.sync_error = None
+    await session.commit()
+    await session.refresh(row)
+    return row
+
+
+class CommentNotFoundError(LookupError):
+    """The referenced comment doesn't exist on this walkthrough."""
+
+
+class InvalidReplyTargetError(ValueError):
+    """The target comment can't be replied to (wrong kind or unsynced)."""
+
+
+async def fetch_pr_file_lines(
+    session: AsyncSession,
+    walkthrough_id: UUID,
+    path: str,
+    start: int,
+    end: int,
+    *,
+    token: str | None = None,
+) -> dict[str, Any]:
+    """Return a 1-indexed slice of a file at the walkthrough's PR head SHA.
+
+    Used by the diff viewer to expand context outside the original hunk range
+    — both on user demand (Expand button) and automatically when a comment is
+    anchored to a line outside the hunk. Lines are returned with their
+    absolute (new-file) line numbers so the gutter aligns with the diff.
+    """
+    walkthrough = await _load(session, walkthrough_id)
+    if not (walkthrough.repo_full_name and walkthrough.pr_head_sha):
+        raise WalkthroughHasNoPrError(str(walkthrough_id))
+    if end < start:
+        end = start
+
+    content = await github_client.fetch_file_at_ref(
+        walkthrough.repo_full_name,
+        path,
+        walkthrough.pr_head_sha,
+        token=token,
+    )
+    # ``splitlines()`` discards the trailing newline, which is what we want
+    # for slicing — line numbers are 1-indexed everywhere in the diff UI.
+    all_lines = content.splitlines()
+    total = len(all_lines)
+    lo = max(1, start)
+    hi = min(total, end)
+    if lo > total:
+        return {"path": path, "ref": walkthrough.pr_head_sha, "total": total, "lines": []}
+    sliced = all_lines[lo - 1 : hi]
+    return {
+        "path": path,
+        "ref": walkthrough.pr_head_sha,
+        "total": total,
+        "lines": [
+            {"line": lo + i, "content": text} for i, text in enumerate(sliced)
+        ],
+    }
+
+
 async def list_comments(
     session: AsyncSession, walkthrough_id: UUID
 ) -> list[PrComment]:
@@ -191,12 +338,16 @@ def comment_to_dto(comment: PrComment) -> dict[str, Any]:
                 "path": comment.anchor_path,
                 "line": comment.anchor_line,
                 "side": comment.anchor_side,
+                "start_line": comment.anchor_start_line,
+                "start_side": comment.anchor_start_side,
             }
             if comment.anchor_path
             else None
         ),
+        "is_outdated": comment.is_outdated,
         "review_state": comment.review_state,
         "in_reply_to_github_id": comment.in_reply_to_github_id,
+        "pull_request_review_id": comment.pull_request_review_id,
         "sync_state": comment.sync_state,
         "sync_error": comment.sync_error,
         "created_at": (
@@ -266,8 +417,12 @@ async def _upsert_comments(
         row.anchor_path = c.anchor_path
         row.anchor_line = c.anchor_line
         row.anchor_side = c.anchor_side
+        row.anchor_start_line = c.anchor_start_line
+        row.anchor_start_side = c.anchor_start_side
+        row.is_outdated = c.is_outdated
         row.review_state = c.review_state
         row.in_reply_to_github_id = c.in_reply_to_github_id
+        row.pull_request_review_id = c.pull_request_review_id
         row.github_created_at = c.github_created_at
         row.github_updated_at = c.github_updated_at
         row.sync_state = "synced"

@@ -59,8 +59,20 @@ class Comment:
     anchor_path: str | None
     anchor_line: int | None
     anchor_side: str | None
+    # Multi-line range. ``start_line`` / ``start_side`` are ``None`` on
+    # single-line comments; on multi-line, the thread spans
+    # ``[start_line, anchor_line]`` (inclusive).
+    anchor_start_line: int | None
+    anchor_start_side: str | None
+    # GitHub flips ``position`` to ``None`` when the underlying line has
+    # shifted past the diff's reach — that's what their UI labels "outdated".
+    is_outdated: bool
     review_state: str | None
     in_reply_to_github_id: int | None
+    # For ``review``: the review's own id (lets the client recognise it as the
+    # parent of the matching ``review_comment`` rows). For ``review_comment``:
+    # the parent review id reported by GitHub.
+    pull_request_review_id: int | None
     github_created_at: datetime | None
     github_updated_at: datetime | None
 
@@ -199,6 +211,76 @@ async def create_issue_comment(
         return _issue_comment_to_dto(resp.json())
 
 
+async def fetch_file_at_ref(
+    repo: str,
+    path: str,
+    ref: str,
+    *,
+    token: str | None = None,
+) -> str:
+    """Return the full text content of a file at a specific ref.
+
+    Uses ``/contents`` with ``Accept: application/vnd.github.raw`` so GitHub
+    streams the file verbatim instead of the base64-wrapped JSON envelope.
+    Raises ``GitHubError`` on 404 (path doesn't exist at ref) and on size
+    limits — GitHub refuses files > 100 MiB on this endpoint.
+    """
+    owner, name = _split_repo(repo)
+    async with httpx.AsyncClient(
+        base_url=GITHUB_API,
+        timeout=DEFAULT_TIMEOUT,
+        headers={
+            "Accept": "application/vnd.github.raw",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Authorization": f"Bearer {_resolve_token(token)}",
+            "User-Agent": "unravel-saas/0.0.0-phase1",
+        },
+    ) as http:
+        # Encode path components but keep '/' separators.
+        from urllib.parse import quote
+
+        encoded = quote(path, safe="/")
+        resp = await http.get(
+            f"/repos/{owner}/{name}/contents/{encoded}", params={"ref": ref}
+        )
+        if resp.status_code != 200:
+            raise GitHubError(
+                resp.status_code,
+                f"GET /contents/{path}?ref={ref} → {resp.status_code}: {resp.text[:200]}",
+            )
+        return resp.text
+
+
+async def create_review_comment_reply(
+    repo: str,
+    number: int,
+    parent_comment_id: int,
+    body: str,
+    *,
+    token: str | None = None,
+) -> Comment:
+    """Reply to an inline review comment thread.
+
+    GitHub's reply endpoint requires the parent comment id (not the review id);
+    the response is a brand-new ``review_comment`` whose ``in_reply_to_id``
+    points at the parent. The reply inherits the parent's anchor and
+    ``pull_request_review_id``.
+    """
+    owner, name = _split_repo(repo)
+    async with _client(token) as http:
+        resp = await http.post(
+            f"/repos/{owner}/{name}/pulls/{number}/comments/{parent_comment_id}/replies",
+            json={"body": body},
+        )
+        if resp.status_code not in (200, 201):
+            raise GitHubError(
+                resp.status_code,
+                f"POST /pulls/{number}/comments/{parent_comment_id}/replies → "
+                f"{resp.status_code}: {resp.text[:200]}",
+            )
+        return _review_comment_to_dto(resp.json())
+
+
 async def _paginate(http: httpx.AsyncClient, path: str) -> list[dict[str, Any]]:
     """Walk through GitHub's Link-header pagination, collecting every page."""
     out: list[dict[str, Any]] = []
@@ -241,8 +323,12 @@ def _issue_comment_to_dto(payload: dict[str, Any]) -> Comment:
         anchor_path=None,
         anchor_line=None,
         anchor_side=None,
+        anchor_start_line=None,
+        anchor_start_side=None,
+        is_outdated=False,
         review_state=None,
         in_reply_to_github_id=None,
+        pull_request_review_id=None,
         github_created_at=_parse_dt(payload.get("created_at")),
         github_updated_at=_parse_dt(payload.get("updated_at")),
     )
@@ -250,6 +336,12 @@ def _issue_comment_to_dto(payload: dict[str, Any]) -> Comment:
 
 def _review_comment_to_dto(payload: dict[str, Any]) -> Comment:
     user = payload.get("user") or {}
+    # GitHub uses ``position is None`` as the canonical "this comment no
+    # longer maps to a current diff line" signal. ``line`` may still be set
+    # (the historical line number) but the UI should mark it outdated.
+    is_outdated = payload.get("position") is None and bool(
+        payload.get("original_line")
+    )
     return Comment(
         github_id=int(payload["id"]),
         kind="review_comment",
@@ -260,8 +352,13 @@ def _review_comment_to_dto(payload: dict[str, Any]) -> Comment:
         anchor_path=payload.get("path"),
         anchor_line=payload.get("line") or payload.get("original_line"),
         anchor_side=payload.get("side"),
+        anchor_start_line=payload.get("start_line")
+        or payload.get("original_start_line"),
+        anchor_start_side=payload.get("start_side"),
+        is_outdated=is_outdated,
         review_state=None,
         in_reply_to_github_id=payload.get("in_reply_to_id"),
+        pull_request_review_id=payload.get("pull_request_review_id"),
         github_created_at=_parse_dt(payload.get("created_at")),
         github_updated_at=_parse_dt(payload.get("updated_at")),
     )
@@ -269,8 +366,9 @@ def _review_comment_to_dto(payload: dict[str, Any]) -> Comment:
 
 def _review_to_dto(payload: dict[str, Any]) -> Comment:
     user = payload.get("user") or {}
+    review_id = int(payload["id"])
     return Comment(
-        github_id=int(payload["id"]),
+        github_id=review_id,
         kind="review",
         author_login=user.get("login"),
         author_avatar_url=user.get("avatar_url"),
@@ -279,8 +377,14 @@ def _review_to_dto(payload: dict[str, Any]) -> Comment:
         anchor_path=None,
         anchor_line=None,
         anchor_side=None,
+        anchor_start_line=None,
+        anchor_start_side=None,
+        is_outdated=False,
         review_state=payload.get("state"),
         in_reply_to_github_id=None,
+        # Self-reference so the client can join ``review_comment`` rows whose
+        # ``pull_request_review_id`` matches this review without a separate lookup.
+        pull_request_review_id=review_id,
         github_created_at=_parse_dt(payload.get("submitted_at")),
         github_updated_at=_parse_dt(payload.get("submitted_at")),
     )

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { FieldEditDTO } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -61,6 +61,22 @@ export function ThreadStage({
   const scrollRef = useRef<HTMLDivElement>(null);
   const threadHeaderRef = useRef<HTMLElement>(null);
   const [scrolled, setScrolled] = useState(false);
+
+  // For each file path touched by this thread, list every hunk that touches
+  // it (preserving order). HunkView uses this to figure out which hunk should
+  // host each anchored comment.
+  const hunksByFileInThread = useMemo<Record<string, Hunk[]>>(() => {
+    const map: Record<string, Hunk[]> = {};
+    if (!thread) return map;
+    for (const step of thread.steps) {
+      for (const ref of hunkRefs(step)) {
+        const h = hunkIndex[ref];
+        if (!h?.file_path) continue;
+        (map[h.file_path] ??= []).push(h);
+      }
+    }
+    return map;
+  }, [thread, hunkIndex]);
 
   // Reset scroll + attach scroll listener whenever thread changes (the scroll
   // container element is recreated for overview vs thread views).
@@ -297,6 +313,7 @@ export function ThreadStage({
               step={step}
               idx={idx}
               hunkIndex={hunkIndex}
+              hunksByFileInThread={hunksByFileInThread}
               collapseSignal={collapseSignal}
               expandSignal={expandSignal}
               walkthroughUuid={walkthroughUuid}
@@ -313,6 +330,7 @@ interface StickyStepProps {
   step: ThreadStepDTO;
   idx: number;
   hunkIndex: Record<string, Hunk>;
+  hunksByFileInThread: Record<string, Hunk[]>;
   collapseSignal: number;
   expandSignal: number;
   walkthroughUuid?: string;
@@ -323,6 +341,7 @@ function StickyStep({
   step,
   idx,
   hunkIndex,
+  hunksByFileInThread,
   collapseSignal,
   expandSignal,
   walkthroughUuid,
@@ -399,6 +418,8 @@ function StickyStep({
             <HunkView
               key={ref}
               hunk={hunk}
+              siblingsForFile={hunksByFileInThread[hunk.file_path] ?? [hunk]}
+              walkthroughUuid={walkthroughUuid}
               stickyTop="calc(var(--thread-h, 48px) + var(--step-h, 0px))"
               collapseSignal={collapseSignal}
               expandSignal={expandSignal}

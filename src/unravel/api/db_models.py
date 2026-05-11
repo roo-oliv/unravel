@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -264,6 +265,11 @@ class PrComment(Base):
             "anchor_path",
             "anchor_line",
         ),
+        Index(
+            "ix_pr_comments_review",
+            "walkthrough_id",
+            "pull_request_review_id",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -283,8 +289,21 @@ class PrComment(Base):
     anchor_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     anchor_line: Mapped[int | None] = mapped_column(Integer, nullable=True)
     anchor_side: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    anchor_start_line: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    anchor_start_side: Mapped[str | None] = mapped_column(
+        String(8), nullable=True
+    )
+    is_outdated: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=sa.text("false"),
+        nullable=False,
+    )
     review_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
     in_reply_to_github_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    pull_request_review_id: Mapped[int | None] = mapped_column(
         BigInteger, nullable=True
     )
     sync_state: Mapped[str] = mapped_column(
