@@ -7,7 +7,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from unravel.api.routers import edits, walkthroughs
+from unravel.api.routers import edits, github, walkthroughs
 
 
 def create_app() -> FastAPI:
@@ -40,6 +40,7 @@ def create_app() -> FastAPI:
 
     app.include_router(walkthroughs.router, tags=["walkthroughs"])
     app.include_router(edits.router, tags=["edits"])
+    app.include_router(github.router, tags=["github"])
 
     return app
 

@@ -12,6 +12,9 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -49,6 +52,27 @@ class Walkthrough(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    # GitHub source (populated when the walkthrough analyses a PR).
+    repo_full_name: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pr_head_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pr_html_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    pr_title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pr_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pr_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    pr_is_draft: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    pr_merged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    pr_closed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    pr_synced_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     threads: Mapped[list[Thread]] = relationship(
@@ -211,6 +235,84 @@ class FieldEdit(Base):
     )
 
 
+class PrComment(Base):
+    """A PR comment mirrored from (or destined for) GitHub.
+
+    ``github_kind`` distinguishes:
+      - ``issue`` — top-level PR thread (``/issues/{n}/comments``)
+      - ``review`` — a review summary (``/pulls/{n}/reviews``)
+      - ``review_comment`` — line-anchored review comment (``/pulls/{n}/comments``)
+
+    ``sync_state`` runs ``local → syncing → synced`` (or ``failed``). Rows
+    inserted from a GitHub fetch start as ``synced`` already; rows posted by
+    a local user start as ``local`` and flip when the GitHub API call lands.
+    """
+
+    __tablename__ = "pr_comments"
+    __table_args__ = (
+        UniqueConstraint(
+            "github_id", "github_kind", name="uq_pr_comments_github"
+        ),
+        Index(
+            "ix_pr_comments_walkthrough_created",
+            "walkthrough_id",
+            "created_at",
+        ),
+        Index(
+            "ix_pr_comments_anchor",
+            "walkthrough_id",
+            "anchor_path",
+            "anchor_line",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    walkthrough_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("walkthroughs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    github_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    github_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    author_login: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    author_avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    body: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    html_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    anchor_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    anchor_line: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    anchor_side: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    review_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    in_reply_to_github_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    sync_state: Mapped[str] = mapped_column(
+        String(16), default="synced", server_default="synced", nullable=False
+    )
+    sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    local_author_login: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    github_created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    github_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 __all__ = [
     "Walkthrough",
     "Thread",
@@ -218,4 +320,5 @@ __all__ = [
     "Hunk",
     "ThreadStepHunk",
     "FieldEdit",
+    "PrComment",
 ]

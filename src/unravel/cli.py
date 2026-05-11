@@ -832,6 +832,24 @@ def _run(
         for w in hydration_warnings:
             console.print(f"[yellow]Hydration:[/yellow] {w}")
 
+        # Stamp source info into metadata so downstream consumers (web UI,
+        # cached JSON dumps) can locate the originating PR or commit range.
+        if diff_source == "pr" and pr_number and repo_nwo:
+            walkthrough.metadata["source"] = {
+                "kind": "pr",
+                "repo": repo_nwo,
+                "number": pr_number,
+                "head_sha": head_sha,
+                "title": metadata.get("title") if metadata else None,
+                "html_url": f"https://github.com/{repo_nwo}/pull/{pr_number}",
+            }
+        elif diff_source == "range" and range_spec:
+            walkthrough.metadata["source"] = {
+                "kind": "range",
+                "spec": range_spec,
+                "staged": staged,
+            }
+
         warnings = validate_walkthrough(walkthrough, hunks)
         for w in warnings:
             console.print(f"[yellow]Warning:[/yellow] {w}")

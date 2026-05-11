@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { EditableField } from "./editable-field";
 import { HunkView } from "./hunk-view";
 import { Markdown } from "./markdown";
+import { OverviewPrSection } from "./overview-pr-section";
 import {
   hunkRefs,
   type Hunk,
@@ -153,6 +154,9 @@ export function ThreadStage({
               })}
             </ol>
           </section>
+          {walkthroughUuid && walkthrough.pr && (
+            <OverviewPrSection walkthroughUuid={walkthroughUuid} />
+          )}
         </article>
       </div>
     );

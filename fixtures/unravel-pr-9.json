@@ -710,7 +710,15 @@
     "thinking_tokens": 0,
     "cache_read_tokens": 0,
     "cache_creation_tokens": 540673,
-    "total_cost_usd": 2.19170175
+    "total_cost_usd": 2.19170175,
+    "source": {
+      "kind": "pr",
+      "repo": "roo-oliv/unravel",
+      "number": 9,
+      "head_sha": null,
+      "title": "Add per-hunk diff counters and captions to walkthrough TUI",
+      "html_url": "https://github.com/roo-oliv/unravel/pull/9"
+    }
   },
   "hunk_captions": {
     "H1": "Entry point renamed to entrypoint",
