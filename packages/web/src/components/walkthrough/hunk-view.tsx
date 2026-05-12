@@ -6,9 +6,12 @@ import {
   ChevronRight,
   ChevronsDown,
   ChevronsUp,
+  Clock,
   ExternalLink,
   Loader2,
+  Pencil,
   Plus,
+  Trash2,
 } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -30,10 +33,13 @@ import {
   groupReviewCommentThreads,
   type CommentThread,
 } from "@/lib/comment-threads";
+import { ownsLine } from "@/lib/hunk-ownership";
 import {
   newPendingId,
   usePendingReviewStore,
+  type PendingReviewComment,
 } from "@/lib/pending-review";
+import { useMe } from "@/lib/use-me";
 import { cn } from "@/lib/utils";
 
 import { CommentComposer } from "./comment-composer";
@@ -140,34 +146,6 @@ function computeLineNumbers(
   return { oldLines, newLines };
 }
 
-function distanceToHunk(h: Hunk, line: number): number {
-  const start = h.new_start;
-  const end = h.new_start + Math.max(h.new_count, 1) - 1;
-  if (line < start) return start - line;
-  if (line > end) return line - end;
-  return 0;
-}
-
-/** Decide if THIS hunk should host a comment anchored at ``line``.
- * The rule: closest hunk to the line; ties broken by smallest ``new_start``. */
-function ownsLine(
-  hunk: Hunk,
-  siblings: Hunk[],
-  line: number,
-): boolean {
-  if (siblings.length <= 1) return true;
-  const myDist = distanceToHunk(hunk, line);
-  const minDist = siblings.reduce(
-    (m, s) => Math.min(m, distanceToHunk(s, line)),
-    Number.POSITIVE_INFINITY,
-  );
-  if (myDist !== minDist) return false;
-  const tied = siblings.filter((s) => distanceToHunk(s, line) === minDist);
-  if (tied.length === 1) return true;
-  tied.sort((a, b) => a.new_start - b.new_start || a.id.localeCompare(b.id));
-  return tied[0].id === hunk.id;
-}
-
 interface HunkViewProps {
   hunk: Hunk;
   /** All hunks for ``hunk.file_path`` within the current thread. Used to decide
@@ -254,6 +232,34 @@ export function HunkView({
       return ownsLine(hunk, siblings, line);
     });
   }, [commentsQuery.data, hunk, siblings]);
+
+  // Pending (staged-not-yet-submitted) review drafts anchored to this file
+  // that this hunk owns. Subscribed via a selector so changes to other
+  // walkthroughs' drafts don't re-render this hunk.
+  const pendingDrafts = usePendingReviewStore(
+    (s) => s.drafts[walkthroughUuid ?? ""]?.comments,
+  );
+  const ownedPendingDrafts = useMemo<PendingReviewComment[]>(() => {
+    if (!pendingDrafts || pendingDrafts.length === 0) return [];
+    return pendingDrafts.filter(
+      (d) => d.path === hunk.file_path && ownsLine(hunk, siblings, d.line),
+    );
+  }, [pendingDrafts, hunk, siblings]);
+
+  // The pending-review bar dispatches ``unravel:reveal-pending`` with the draft
+  // id when the user clicks one of the staged drafts. Any HunkView that owns
+  // that draft expands itself so the scroll target is in the DOM.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string }>).detail;
+      if (!detail) return;
+      if (!ownedPendingDrafts.some((d) => d.id === detail.id)) return;
+      setCollapsed(false);
+    };
+    document.addEventListener("unravel:reveal-pending", handler);
+    return () =>
+      document.removeEventListener("unravel:reveal-pending", handler);
+  }, [ownedPendingDrafts]);
 
   // Auto-expand for owned threads whose anchor falls outside the visible
   // window. Only handles RIGHT-side anchors (we'd need the base SHA to fetch
@@ -378,6 +384,27 @@ export function HunkView({
     }
     return map;
   }, [ownedThreads, rows]);
+
+  // Same indexing for pending drafts so they render inline like real threads.
+  const pendingByRowKey = useMemo<Map<string, PendingReviewComment[]>>(() => {
+    const map = new Map<string, PendingReviewComment[]>();
+    if (ownedPendingDrafts.length === 0) return map;
+    const byNew = new Map<number, RenderedRow>();
+    const byOld = new Map<number, RenderedRow>();
+    for (const r of rows) {
+      if (r.newLine != null) byNew.set(r.newLine, r);
+      if (r.oldLine != null && r.kind === "del") byOld.set(r.oldLine, r);
+    }
+    for (const d of ownedPendingDrafts) {
+      const useOld = d.side === "LEFT";
+      const row = useOld ? byOld.get(d.line) : byNew.get(d.line);
+      if (!row) continue;
+      const bucket = map.get(row.key) ?? [];
+      bucket.push(d);
+      map.set(row.key, bucket);
+    }
+    return map;
+  }, [ownedPendingDrafts, rows]);
 
   const orphanThreads = useMemo<CommentThread[]>(() => {
     if (ownedThreads.length === 0) return [];
@@ -523,6 +550,7 @@ export function HunkView({
                 hunkId={hunk.id}
                 filePath={hunk.file_path}
                 threads={threadsByRowKey.get(row.key) ?? []}
+                pendingDrafts={pendingByRowKey.get(row.key) ?? []}
                 walkthroughUuid={walkthroughUuid}
                 isSelected={
                   isLineInSelection(row, selection) ||
@@ -604,6 +632,7 @@ function CodeAndThreads({
   hunkId,
   filePath,
   threads,
+  pendingDrafts,
   walkthroughUuid,
   isSelected,
   draftAnchor,
@@ -616,6 +645,7 @@ function CodeAndThreads({
   hunkId: string;
   filePath: string;
   threads: CommentThread[];
+  pendingDrafts: PendingReviewComment[];
   walkthroughUuid?: string;
   isSelected: boolean;
   draftAnchor: LineSelection | null;
@@ -641,6 +671,15 @@ function CodeAndThreads({
           walkthroughUuid={walkthroughUuid}
         />
       ))}
+      {pendingDrafts.map((d) =>
+        walkthroughUuid ? (
+          <PendingDraftRow
+            key={`pending:${d.id}`}
+            draft={d}
+            walkthroughUuid={walkthroughUuid}
+          />
+        ) : null,
+      )}
       {draftAnchor && walkthroughUuid && (
         <NewCommentDraftRow
           walkthroughUuid={walkthroughUuid}
@@ -889,6 +928,153 @@ function Gutter({
       {line ?? ""}
     </span>
   );
+}
+
+function PendingDraftRow({
+  draft,
+  walkthroughUuid,
+}: {
+  draft: PendingReviewComment;
+  walkthroughUuid: string;
+}) {
+  const updateComment = usePendingReviewStore((s) => s.updateComment);
+  const removeComment = usePendingReviewStore((s) => s.removeComment);
+  const me = useMe().data ?? null;
+  const [editing, setEditing] = useState(false);
+  const [draftBody, setDraftBody] = useState(draft.body);
+
+  // Keep the local textarea in sync if the draft is mutated elsewhere (e.g.
+  // edited from the pending-review bar) while we're not actively editing.
+  useEffect(() => {
+    if (!editing) setDraftBody(draft.body);
+  }, [draft.body, editing]);
+
+  const title = pendingRangeTitle(draft);
+
+  const save = () => {
+    const v = draftBody.trim();
+    if (!v) {
+      // Empty body would silently drop the draft on submit — treat as remove.
+      removeComment(walkthroughUuid, draft.id);
+      return;
+    }
+    updateComment(walkthroughUuid, draft.id, { body: v });
+    setEditing(false);
+  };
+
+  const cancelEdit = () => {
+    setDraftBody(draft.body);
+    setEditing(false);
+  };
+
+  return (
+    <div
+      id={`pending-draft-${draft.id}`}
+      data-pending-draft-id={draft.id}
+      className="border-y border-amber-300/60 bg-amber-50 px-3 py-2 font-sans text-sm text-foreground transition-shadow duration-200 dark:border-amber-500/40 dark:bg-amber-500/10"
+    >
+      <header className="mb-2 flex items-center justify-between gap-2 text-[11px]">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-200/80 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-900 dark:bg-amber-500/30 dark:text-amber-100">
+            <Clock className="size-2.5" aria-hidden="true" />
+            Pending
+          </span>
+          <span className="truncate font-mono text-amber-900/80 dark:text-amber-100/80">
+            {title}
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {!editing && (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              aria-label="Edit pending comment"
+              title="Edit"
+              className="rounded p-0.5 text-amber-900/70 hover:bg-amber-200/60 hover:text-amber-900 dark:text-amber-100/70 dark:hover:bg-amber-500/20 dark:hover:text-amber-100"
+            >
+              <Pencil className="size-3" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => removeComment(walkthroughUuid, draft.id)}
+            aria-label="Discard pending comment"
+            title="Discard"
+            className="rounded p-0.5 text-amber-900/70 hover:bg-amber-200/60 hover:text-amber-900 dark:text-amber-100/70 dark:hover:bg-amber-500/20 dark:hover:text-amber-100"
+          >
+            <Trash2 className="size-3" />
+          </button>
+        </div>
+      </header>
+      <div className="flex items-start gap-2">
+        {me?.avatar_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={me.avatar_url}
+            alt=""
+            className="size-5 shrink-0 rounded-full"
+          />
+        ) : (
+          <span className="size-5 shrink-0 rounded-full bg-amber-200 dark:bg-amber-500/40" />
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-1.5 text-xs">
+            <span className="font-medium">
+              {me?.github_login ?? me?.name ?? "You"}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              will post on submit · {formatDate(draft.stagedAt)}
+            </span>
+          </div>
+          {editing ? (
+            <div className="mt-1.5">
+              <CommentComposer
+                value={draftBody}
+                onChange={setDraftBody}
+                onSubmit={save}
+                onCancel={cancelEdit}
+                autoFocus
+                compact
+                rows={3}
+                placeholder="Write a review comment…"
+                actions={
+                  <>
+                    <button
+                      type="button"
+                      onClick={cancelEdit}
+                      className="text-[10px] text-muted-foreground hover:text-foreground"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={save}
+                      className="inline-flex items-center gap-1 rounded-md bg-foreground px-2 py-0.5 text-[11px] font-medium text-background"
+                    >
+                      Save
+                    </button>
+                  </>
+                }
+              />
+            </div>
+          ) : (
+            <Markdown className="mt-1 text-xs">
+              {draft.body || "_(empty — click the pencil to add text)_"}
+            </Markdown>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function pendingRangeTitle(draft: PendingReviewComment): string {
+  const side = draft.side === "LEFT" ? "L" : "R";
+  if (draft.start_line && draft.start_line !== draft.line) {
+    const startSide = (draft.start_side ?? draft.side) === "LEFT" ? "L" : "R";
+    return `Will post on lines ${startSide}${draft.start_line} to ${side}${draft.line}`;
+  }
+  return `Will post on line ${side}${draft.line}`;
 }
 
 function InlineThreadRow({

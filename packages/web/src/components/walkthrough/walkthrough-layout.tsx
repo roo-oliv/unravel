@@ -3,10 +3,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
-import { api, type FieldEditDTO } from "@/lib/api";
+import { api, type FieldEditDTO, type HunkDTO } from "@/lib/api";
+import { ownsLine } from "@/lib/hunk-ownership";
+import type { PendingReviewComment } from "@/lib/pending-review";
 
 import { UserMenu } from "../user-menu";
 import { CommandPalette } from "./command-palette";
@@ -17,7 +19,7 @@ import { SettingsDialog } from "./settings-dialog";
 import { ShortcutsHelp } from "./shortcuts-help";
 import { ThreadList } from "./thread-list";
 import { ThreadStage } from "./thread-stage";
-import { indexHunks, type Walkthrough } from "./types";
+import { hunkRefs, indexHunks, type Walkthrough } from "./types";
 
 interface Props {
   walkthrough: Walkthrough;
@@ -58,6 +60,104 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
     }
     return { additions, deletions };
   }, [hunkIndex]);
+
+  // For each thread (by suggested-order index) build a file-path → hunks map.
+  // Used to figure out which thread owns a pending review draft so clicking a
+  // draft in the bar can switch threads before scrolling.
+  const hunksByFileByThread = useMemo<Record<string, HunkDTO[]>[]>(() => {
+    return order.map((tid) => {
+      const thread = walkthrough.threads.find((t) => t.id === tid);
+      const map: Record<string, HunkDTO[]> = {};
+      if (!thread) return map;
+      for (const step of thread.steps) {
+        for (const ref of hunkRefs(step)) {
+          const h = hunkIndex[ref];
+          if (!h?.file_path) continue;
+          (map[h.file_path] ??= []).push(h);
+        }
+      }
+      return map;
+    });
+  }, [order, walkthrough.threads, hunkIndex]);
+
+  const findThreadIndexFor = useCallback(
+    (draft: PendingReviewComment): number | null => {
+      // Prefer the current thread when it owns the draft (so a same-thread
+      // click doesn't pointlessly re-navigate).
+      const checkAt = (idx: number): boolean => {
+        const byFile = hunksByFileByThread[idx];
+        const siblings = byFile?.[draft.path];
+        if (!siblings || siblings.length === 0) return false;
+        return siblings.some((h) => ownsLine(h, siblings, draft.line));
+      };
+      if (activeIndex >= 0 && checkAt(activeIndex)) return activeIndex;
+      for (let i = 0; i < hunksByFileByThread.length; i++) {
+        if (i === activeIndex) continue;
+        if (checkAt(i)) return i;
+      }
+      return null;
+    },
+    [hunksByFileByThread, activeIndex],
+  );
+
+  const handleRevealPending = useCallback(
+    (draft: PendingReviewComment) => {
+      const targetIdx = findThreadIndexFor(draft);
+      const needsNav = targetIdx != null && targetIdx !== activeIndex;
+      if (needsNav) setActiveIndex(targetIdx!);
+
+      const targetDomId = `pending-draft-${draft.id}`;
+      const flash = (el: HTMLElement) => {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add(
+          "ring-2",
+          "ring-amber-400",
+          "ring-offset-2",
+          "ring-offset-background",
+        );
+        setTimeout(
+          () =>
+            el.classList.remove(
+              "ring-2",
+              "ring-amber-400",
+              "ring-offset-2",
+              "ring-offset-background",
+            ),
+          1600,
+        );
+      };
+      const dispatchAndScroll = () => {
+        // Tell any HunkView hosting this draft to expand itself, then scroll.
+        document.dispatchEvent(
+          new CustomEvent("unravel:reveal-pending", {
+            detail: { id: draft.id },
+          }),
+        );
+        const tryScroll = (attempt: number) => {
+          const el = document.getElementById(targetDomId);
+          if (el) {
+            flash(el);
+            return;
+          }
+          if (attempt > 0) {
+            requestAnimationFrame(() => tryScroll(attempt - 1));
+          }
+        };
+        // A few retries cover: hunk collapsed → expanding, thread just
+        // switched → ThreadStage mounting + Shiki tokenising.
+        tryScroll(8);
+      };
+      if (needsNav) {
+        // Let React commit the new thread + its hunks before reaching for the
+        // DOM node. requestAnimationFrame inside dispatchAndScroll then keeps
+        // polling until Shiki finishes tokenising the hunk.
+        setTimeout(dispatchAndScroll, 30);
+      } else {
+        dispatchAndScroll();
+      }
+    },
+    [activeIndex, findThreadIndexFor],
+  );
 
   // Edit history (per-field popovers). Server-side append-only log; we group
   // it client-side by editKey so each EditableField gets just its own entries.
@@ -224,7 +324,7 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
             walkthroughUuid={walkthroughUuid}
             additions={diffTotals.additions}
             deletions={diffTotals.deletions}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onRevealPending={handleRevealPending}
           />
         </div>
       )}

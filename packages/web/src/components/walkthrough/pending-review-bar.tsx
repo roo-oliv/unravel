@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Loader2,
   MessageSquare,
-  Settings,
   Undo2,
   X,
 } from "lucide-react";
@@ -29,7 +28,7 @@ interface Props {
   walkthroughUuid: string;
   additions: number;
   deletions: number;
-  onOpenSettings?: () => void;
+  onRevealPending?: (draft: PendingReviewComment) => void;
 }
 
 function isPrClosedOrMerged(state: PrState | undefined): boolean {
@@ -57,13 +56,12 @@ export function PendingReviewBar({
   walkthroughUuid,
   additions,
   deletions,
-  onOpenSettings,
+  onRevealPending,
 }: Props) {
   const draft = usePendingReviewStore((s) => s.drafts[walkthroughUuid]);
   const setSummary = usePendingReviewStore((s) => s.setSummary);
   const clear = usePendingReviewStore((s) => s.clear);
   const removeComment = usePendingReviewStore((s) => s.removeComment);
-  const updateComment = usePendingReviewStore((s) => s.updateComment);
   const queryClient = useQueryClient();
 
   const prQuery = useQuery({
@@ -220,22 +218,6 @@ export function PendingReviewBar({
               onClick={() => setExpanded(true)}
             />
           )}
-          {onOpenSettings && (
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              aria-label="Display settings"
-              title="Display settings"
-              className={cn(
-                "inline-flex items-center justify-center rounded border p-1",
-                hasDraft
-                  ? "border-blue-300 bg-white/60 text-blue-900 hover:bg-white dark:border-blue-800 dark:bg-blue-900/40 dark:text-blue-100 dark:hover:bg-blue-900/60"
-                  : "border-border bg-background hover:bg-accent hover:text-foreground",
-              )}
-            >
-              <Settings className="size-3.5" aria-hidden="true" />
-            </button>
-          )}
         </div>
       </div>
       {submit.error && (
@@ -269,8 +251,10 @@ export function PendingReviewBar({
                   <DraftCommentRow
                     draft={c}
                     onRemove={() => removeComment(walkthroughUuid, c.id)}
-                    onChange={(body) =>
-                      updateComment(walkthroughUuid, c.id, { body })
+                    onReveal={
+                      onRevealPending
+                        ? () => onRevealPending(c)
+                        : undefined
                     }
                   />
                 </li>
@@ -438,62 +422,46 @@ function DiscardButton({
 
 function DraftCommentRow({
   draft,
-  onChange,
   onRemove,
+  onReveal,
 }: {
   draft: PendingReviewComment;
-  onChange: (body: string) => void;
   onRemove: () => void;
+  onReveal?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const range =
     draft.start_line && draft.start_line !== draft.line
       ? `${draft.start_side ?? draft.side}${draft.start_line}–${draft.side}${draft.line}`
       : `${draft.side}${draft.line}`;
   return (
-    <div className="rounded-md border border-blue-200/60 bg-white/60 p-2 text-foreground dark:border-blue-900/60 dark:bg-blue-950/30">
-      <header className="flex items-center justify-between gap-2 text-[11px]">
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-        >
-          {open ? (
-            <ChevronDown className="size-3 shrink-0" />
-          ) : (
-            <ChevronRight className="size-3 shrink-0" />
-          )}
+    <div className="relative rounded-md border border-blue-200/60 bg-white/60 text-foreground dark:border-blue-900/60 dark:bg-blue-950/30">
+      <button
+        type="button"
+        onClick={onReveal}
+        disabled={!onReveal}
+        className="block w-full rounded-md p-2 pr-8 text-left hover:bg-blue-100/60 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-blue-900/40"
+        title="Jump to this comment in the diff"
+      >
+        <div className="flex items-center gap-1.5 text-[11px]">
+          <ChevronRight className="size-3 shrink-0 opacity-60" />
           <span className="truncate font-mono" title={draft.path}>
             {basename(draft.path)}
           </span>
           <span className="shrink-0 opacity-60">:{range}</span>
-        </button>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label="Remove draft comment"
-          title="Remove draft"
-        >
-          <X className="size-3" />
-        </button>
-      </header>
-      {open ? (
-        <div className="mt-2">
-          <CommentComposer
-            value={draft.body}
-            onChange={onChange}
-            rows={3}
-            compact
-            placeholder="Write a review comment…"
-          />
         </div>
-      ) : (
         <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs text-foreground/80">
           {draft.body || "(empty)"}
         </p>
-      )}
+      </button>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        aria-label="Remove draft comment"
+        title="Remove draft"
+      >
+        <X className="size-3" />
+      </button>
     </div>
   );
 }
