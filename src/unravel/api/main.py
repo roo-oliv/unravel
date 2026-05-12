@@ -6,14 +6,15 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
-from unravel.api.routers import edits, walkthroughs
+from unravel.api.routers import auth, edits, github, walkthroughs
 
 
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Unravel API",
-        version="0.0.0-phase0",
+        version="0.0.1-phase1",
         docs_url="/docs",
         redoc_url=None,
     )
@@ -34,12 +35,27 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Authlib stashes the OAuth state CSRF token in request.session, so we
+    # need Starlette's signed-cookie session for the OAuth handshake itself
+    # — this is separate from our DB-backed user session.
+    session_secret = os.environ.get("SESSION_SECRET", "dev-only-change-me")
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=session_secret,
+        session_cookie="unravel_oauth_state",
+        max_age=600,  # OAuth dance has ~5min; 10min covers slow auth providers
+        same_site="lax",
+        https_only=os.environ.get("SESSION_COOKIE_SECURE", "0") == "1",
+    )
+
     @app.get("/health")
     def health() -> dict:
         return {"status": "ok"}
 
+    app.include_router(auth.router, tags=["auth"])
     app.include_router(walkthroughs.router, tags=["walkthroughs"])
     app.include_router(edits.router, tags=["edits"])
+    app.include_router(github.router, tags=["github"])
 
     return app
 

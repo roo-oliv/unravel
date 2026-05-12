@@ -35,6 +35,7 @@ const groups: Group[] = [
     heading: "Layout & hunks",
     items: [
       { keys: ["f"], label: "Focus mode (collapse sidebar)" },
+      { keys: ["d"], label: "Toggle comments drawer" },
       { keys: ["e"], label: "Expand all hunks" },
       { keys: ["c"], label: "Collapse all hunks" },
     ],

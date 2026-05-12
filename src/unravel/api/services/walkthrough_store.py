@@ -46,9 +46,19 @@ class EditValidationError(ValueError):
 async def get_or_create_walkthrough_from_fixture(
     session: AsyncSession, slug: str, fixture: dict
 ) -> Walkthrough:
-    """Return the persisted Walkthrough for ``slug``, inserting from fixture on first hit."""
+    """Return the persisted Walkthrough for ``slug``, inserting from fixture on first hit.
+
+    If a row already exists, opportunistically backfill PR source columns from
+    ``metadata.source`` when present in the fixture and absent on the row.
+    This avoids forcing developers to drop walkthroughs after schema additions.
+    """
     existing = await load_full_walkthrough(session, slug=slug)
     if existing is not None:
+        if _backfill_pr_source(existing, fixture):
+            await session.commit()
+            # Reload to ensure relationships are still hydrated post-commit.
+            existing = await load_full_walkthrough(session, slug=slug)
+            assert existing is not None
         return existing
 
     walkthrough = _build_walkthrough_from_fixture(slug, fixture)
@@ -58,6 +68,30 @@ async def get_or_create_walkthrough_from_fixture(
     persisted = await load_full_walkthrough(session, slug=slug)
     assert persisted is not None
     return persisted
+
+
+def _backfill_pr_source(walkthrough: Walkthrough, fixture: dict) -> bool:
+    """Populate PR columns from ``metadata.source`` if the row is missing them.
+
+    Returns True if any field was updated (caller should commit).
+    """
+    if walkthrough.repo_full_name and walkthrough.pr_number:
+        return False
+    source = (fixture.get("metadata") or {}).get("source") or {}
+    if not isinstance(source, dict) or source.get("kind") != "pr":
+        return False
+    repo = source.get("repo")
+    number = source.get("number")
+    if not (isinstance(repo, str) and isinstance(number, int)):
+        return False
+    walkthrough.repo_full_name = repo
+    walkthrough.pr_number = number
+    walkthrough.pr_head_sha = source.get("head_sha")
+    walkthrough.pr_html_url = (
+        source.get("html_url") or f"https://github.com/{repo}/pull/{number}"
+    )
+    walkthrough.pr_title = source.get("title")
+    return True
 
 
 async def load_full_walkthrough(
@@ -154,15 +188,34 @@ def _build_walkthrough_from_fixture(slug: str, fixture: dict) -> Walkthrough:
             )
         )
 
+    extra_metadata = dict(fixture.get("metadata") or {})
+    source = extra_metadata.get("source") or {}
+    pr_fields: dict[str, Any] = {}
+    if isinstance(source, dict) and source.get("kind") == "pr":
+        repo = source.get("repo")
+        number = source.get("number")
+        if isinstance(repo, str) and isinstance(number, int):
+            pr_fields = {
+                "repo_full_name": repo,
+                "pr_number": number,
+                "pr_head_sha": source.get("head_sha"),
+                "pr_html_url": (
+                    source.get("html_url")
+                    or f"https://github.com/{repo}/pull/{number}"
+                ),
+                "pr_title": source.get("title"),
+            }
+
     return Walkthrough(
         slug=slug,
         overview=fixture.get("overview") or "",
         suggested_order=list(fixture.get("suggested_order") or []),
-        extra_metadata=dict(fixture.get("metadata") or {}),
+        extra_metadata=extra_metadata,
         hunk_captions=dict(raw_captions),
         raw_diff=fixture.get("raw_diff") or "",
         threads=threads,
         hunks=list(hunks_by_ref.values()),
+        **pr_fields,
     )
 
 
@@ -211,6 +264,16 @@ def walkthrough_to_dto(walkthrough: Walkthrough) -> dict[str, Any]:
             }
         )
 
+    pr: dict[str, Any] | None = None
+    if walkthrough.repo_full_name and walkthrough.pr_number:
+        pr = {
+            "repo": walkthrough.repo_full_name,
+            "number": walkthrough.pr_number,
+            "html_url": walkthrough.pr_html_url,
+            "title": walkthrough.pr_title,
+            "head_sha": walkthrough.pr_head_sha,
+        }
+
     return {
         "id": walkthrough.slug,
         "uuid": str(walkthrough.id),
@@ -220,6 +283,7 @@ def walkthrough_to_dto(walkthrough: Walkthrough) -> dict[str, Any]:
         "metadata": dict(walkthrough.extra_metadata or {}),
         "hunk_captions": dict(walkthrough.hunk_captions or {}),
         "threads": thread_dtos,
+        "pr": pr,
     }
 
 

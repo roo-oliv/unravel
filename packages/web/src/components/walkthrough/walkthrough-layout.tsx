@@ -1,19 +1,25 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
-import { api, type FieldEditDTO } from "@/lib/api";
+import { api, type FieldEditDTO, type HunkDTO } from "@/lib/api";
+import { ownsLine } from "@/lib/hunk-ownership";
+import type { PendingReviewComment } from "@/lib/pending-review";
 
+import { UserMenu } from "../user-menu";
 import { CommandPalette } from "./command-palette";
 import { PendingEditsBar } from "./pending-edits-bar";
+import { PendingReviewBar } from "./pending-review-bar";
+import { PrStatusBadge } from "./pr-status-badge";
+import { SettingsDialog } from "./settings-dialog";
 import { ShortcutsHelp } from "./shortcuts-help";
 import { ThreadList } from "./thread-list";
 import { ThreadStage } from "./thread-stage";
-import { indexHunks, type Walkthrough } from "./types";
+import { hunkRefs, indexHunks, type Walkthrough } from "./types";
 
 interface Props {
   walkthrough: Walkthrough;
@@ -22,6 +28,10 @@ interface Props {
 
 function historyKeyFor(edit: FieldEditDTO): string {
   return `${edit.target_kind}:${edit.target_id}:${edit.field}`;
+}
+
+function gridColumnsFor(opts: { sidebarCollapsed: boolean }): string {
+  return `${opts.sidebarCollapsed ? "3rem" : "280px"} 1fr`;
 }
 
 export function WalkthroughLayout({ walkthrough, slug }: Props) {
@@ -33,12 +43,121 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
   const [activeIndex, setActiveIndex] = useState<number>(-1);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // Counters increment on each press; HunkView reacts on change.
   const [collapseSignal, setCollapseSignal] = useState(0);
   const [expandSignal, setExpandSignal] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const hunkIndex = useMemo(() => indexHunks(walkthrough), [walkthrough]);
+
+  const diffTotals = useMemo(() => {
+    let additions = 0;
+    let deletions = 0;
+    for (const h of Object.values(hunkIndex)) {
+      additions += h.additions || 0;
+      deletions += h.deletions || 0;
+    }
+    return { additions, deletions };
+  }, [hunkIndex]);
+
+  // For each thread (by suggested-order index) build a file-path → hunks map.
+  // Used to figure out which thread owns a pending review draft so clicking a
+  // draft in the bar can switch threads before scrolling.
+  const hunksByFileByThread = useMemo<Record<string, HunkDTO[]>[]>(() => {
+    return order.map((tid) => {
+      const thread = walkthrough.threads.find((t) => t.id === tid);
+      const map: Record<string, HunkDTO[]> = {};
+      if (!thread) return map;
+      for (const step of thread.steps) {
+        for (const ref of hunkRefs(step)) {
+          const h = hunkIndex[ref];
+          if (!h?.file_path) continue;
+          (map[h.file_path] ??= []).push(h);
+        }
+      }
+      return map;
+    });
+  }, [order, walkthrough.threads, hunkIndex]);
+
+  const findThreadIndexFor = useCallback(
+    (draft: PendingReviewComment): number | null => {
+      // Prefer the current thread when it owns the draft (so a same-thread
+      // click doesn't pointlessly re-navigate).
+      const checkAt = (idx: number): boolean => {
+        const byFile = hunksByFileByThread[idx];
+        const siblings = byFile?.[draft.path];
+        if (!siblings || siblings.length === 0) return false;
+        return siblings.some((h) => ownsLine(h, siblings, draft.line));
+      };
+      if (activeIndex >= 0 && checkAt(activeIndex)) return activeIndex;
+      for (let i = 0; i < hunksByFileByThread.length; i++) {
+        if (i === activeIndex) continue;
+        if (checkAt(i)) return i;
+      }
+      return null;
+    },
+    [hunksByFileByThread, activeIndex],
+  );
+
+  const handleRevealPending = useCallback(
+    (draft: PendingReviewComment) => {
+      const targetIdx = findThreadIndexFor(draft);
+      const needsNav = targetIdx != null && targetIdx !== activeIndex;
+      if (needsNav) setActiveIndex(targetIdx!);
+
+      const targetDomId = `pending-draft-${draft.id}`;
+      const flash = (el: HTMLElement) => {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add(
+          "ring-2",
+          "ring-amber-400",
+          "ring-offset-2",
+          "ring-offset-background",
+        );
+        setTimeout(
+          () =>
+            el.classList.remove(
+              "ring-2",
+              "ring-amber-400",
+              "ring-offset-2",
+              "ring-offset-background",
+            ),
+          1600,
+        );
+      };
+      const dispatchAndScroll = () => {
+        // Tell any HunkView hosting this draft to expand itself, then scroll.
+        document.dispatchEvent(
+          new CustomEvent("unravel:reveal-pending", {
+            detail: { id: draft.id },
+          }),
+        );
+        const tryScroll = (attempt: number) => {
+          const el = document.getElementById(targetDomId);
+          if (el) {
+            flash(el);
+            return;
+          }
+          if (attempt > 0) {
+            requestAnimationFrame(() => tryScroll(attempt - 1));
+          }
+        };
+        // A few retries cover: hunk collapsed → expanding, thread just
+        // switched → ThreadStage mounting + Shiki tokenising.
+        tryScroll(8);
+      };
+      if (needsNav) {
+        // Let React commit the new thread + its hunks before reaching for the
+        // DOM node. requestAnimationFrame inside dispatchAndScroll then keeps
+        // polling until Shiki finishes tokenising the hunk.
+        setTimeout(dispatchAndScroll, 30);
+      } else {
+        dispatchAndScroll();
+      }
+    },
+    [activeIndex, findThreadIndexFor],
+  );
 
   // Edit history (per-field popovers). Server-side append-only log; we group
   // it client-side by editKey so each EditableField gets just its own entries.
@@ -105,6 +224,17 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
     e.preventDefault();
     setSidebarCollapsed((c) => !c);
   });
+  // ``d`` keeps a useful job in the new inline-comments world: jump straight
+  // to the PR conversation feed in Overview. Inline comments in thread view
+  // are always rendered so the binding is a no-op there.
+  useHotkeys("d", (e) => {
+    e.preventDefault();
+    if (activeIndex < 0) {
+      document
+        .getElementById("pr-conversation")
+        ?.scrollIntoView({ behavior: "smooth" });
+    }
+  });
 
   const position =
     activeIndex === -1
@@ -112,12 +242,12 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
       : `${String(activeIndex + 1).padStart(2, "0")} / ${String(order.length).padStart(2, "0")}`;
 
   return (
-    <div className="h-screen grid grid-rows-[2.25rem_auto_1fr_1.75rem] overflow-hidden">
+    <div className="h-screen grid grid-rows-[2.25rem_auto_auto_1fr_1.75rem] overflow-hidden">
       {/* Each slot pins its grid-row explicitly so the layout stays put when */}
       {/* PendingEditsBar renders null (no pending edits) — without this, */}
       {/* auto-placement collapses the bar slot and footer absorbs the 1fr row. */}
       <header className="row-start-1 flex items-center justify-between border-b bg-muted/30 px-4 text-xs">
-        <nav className="flex items-center gap-2 font-mono text-muted-foreground">
+        <nav className="flex min-w-0 items-center gap-2 font-mono text-muted-foreground">
           <Link
             href="/repos"
             className="rounded px-1 py-0.5 hover:bg-accent hover:text-foreground"
@@ -125,9 +255,34 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
             fixtures
           </Link>
           <span aria-hidden="true">/</span>
-          <span className="text-foreground">{slug ?? "walkthrough"}</span>
+          <span className="truncate text-foreground">{slug ?? "walkthrough"}</span>
+          {walkthroughUuid && walkthrough.pr && (
+            <span className="ml-2 hidden sm:inline-flex">
+              <PrStatusBadge
+                walkthroughUuid={walkthroughUuid}
+                fallbackHref={walkthrough.pr.html_url}
+              />
+            </span>
+          )}
         </nav>
         <div className="flex items-center gap-3 text-muted-foreground">
+          {walkthrough.pr && activeIndex < 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                document
+                  .getElementById("pr-conversation")
+                  ?.scrollIntoView({ behavior: "smooth" })
+              }
+              className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+              title="Scroll to PR comments (d)"
+            >
+              <kbd className="rounded border bg-background px-1 font-mono text-[10px]">
+                d
+              </kbd>
+              <span className="hidden sm:inline">conversation</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setPaletteOpen(true)}
@@ -148,19 +303,42 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
             </kbd>
             <span className="hidden sm:inline">help</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Display settings"
+            title="Display settings"
+            className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+          >
+            <Settings className="size-3.5" aria-hidden="true" />
+          </button>
+          <div className="ml-2 border-l pl-2">
+            <UserMenu next={slug ? `/walkthrough/${slug}` : "/repos"} />
+          </div>
         </div>
       </header>
 
-      {walkthroughUuid && (
+      {walkthroughUuid && walkthrough.pr && (
         <div className="row-start-2">
+          <PendingReviewBar
+            walkthroughUuid={walkthroughUuid}
+            additions={diffTotals.additions}
+            deletions={diffTotals.deletions}
+            onRevealPending={handleRevealPending}
+          />
+        </div>
+      )}
+
+      {walkthroughUuid && (
+        <div className="row-start-3">
           <PendingEditsBar walkthroughUuid={walkthroughUuid} slug={slug} />
         </div>
       )}
 
       <div
-        className="row-start-3 grid overflow-hidden transition-[grid-template-columns] duration-150"
+        className="row-start-4 grid overflow-hidden transition-[grid-template-columns] duration-150"
         style={{
-          gridTemplateColumns: sidebarCollapsed ? "3rem 1fr" : "280px 1fr",
+          gridTemplateColumns: gridColumnsFor({ sidebarCollapsed }),
         }}
       >
         <aside className="flex flex-col overflow-hidden border-r bg-muted/20">
@@ -219,7 +397,7 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
         </main>
       </div>
 
-      <footer className="row-start-4 flex items-center justify-between gap-4 border-t bg-muted/20 px-4 font-mono text-[10px] text-muted-foreground">
+      <footer className="row-start-5 flex items-center justify-between gap-4 border-t bg-muted/20 px-4 font-mono text-[10px] text-muted-foreground">
         <div className="flex min-w-0 flex-1 items-center gap-x-4 gap-y-0.5 overflow-hidden whitespace-nowrap">
           <span className="flex items-center gap-1">
             <kbd className="rounded border bg-background px-1 py-0.5">j</kbd>
@@ -261,6 +439,7 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
         onSelect={setActiveIndex}
       />
       <ShortcutsHelp open={helpOpen} onOpenChange={setHelpOpen} />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 }

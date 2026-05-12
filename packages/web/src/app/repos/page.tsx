@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 
+import { UserMenu } from "@/components/user-menu";
 import { api } from "@/lib/api";
 
 export default function ReposPage() {
@@ -13,17 +14,22 @@ export default function ReposPage() {
 
   return (
     <main className="container max-w-4xl py-12">
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Walkthrough fixtures
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Phase 0 dev. Drop walkthrough JSON files in{" "}
-          <code className="font-mono text-xs px-1 py-0.5 rounded bg-muted">
-            fixtures/
-          </code>{" "}
-          and they show up here.
-        </p>
+      <header className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Walkthrough fixtures
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Phase 0 dev. Drop walkthrough JSON files in{" "}
+            <code className="font-mono text-xs px-1 py-0.5 rounded bg-muted">
+              fixtures/
+            </code>{" "}
+            and they show up here.
+          </p>
+        </div>
+        <div className="shrink-0 text-xs">
+          <UserMenu next="/repos" />
+        </div>
       </header>
 
       {isLoading && (

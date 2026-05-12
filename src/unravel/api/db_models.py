@@ -11,7 +11,11 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -49,6 +53,31 @@ class Walkthrough(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    # GitHub source (populated when the walkthrough analyses a PR).
+    repo_full_name: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pr_head_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # PR's GraphQL global id (``node_id``). Required for the GraphQL review
+    # mutations, which accept comments on lines outside the diff hunks (the
+    # REST endpoints don't). Backfilled on the next ``refresh_pr``.
+    pr_node_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pr_html_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    pr_title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pr_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pr_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    pr_is_draft: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    pr_merged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    pr_closed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    pr_synced_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     threads: Mapped[list[Thread]] = relationship(
@@ -211,6 +240,170 @@ class FieldEdit(Base):
     )
 
 
+class PrComment(Base):
+    """A PR comment mirrored from (or destined for) GitHub.
+
+    ``github_kind`` distinguishes:
+      - ``issue`` — top-level PR thread (``/issues/{n}/comments``)
+      - ``review`` — a review summary (``/pulls/{n}/reviews``)
+      - ``review_comment`` — line-anchored review comment (``/pulls/{n}/comments``)
+
+    ``sync_state`` runs ``local → syncing → synced`` (or ``failed``). Rows
+    inserted from a GitHub fetch start as ``synced`` already; rows posted by
+    a local user start as ``local`` and flip when the GitHub API call lands.
+    """
+
+    __tablename__ = "pr_comments"
+    __table_args__ = (
+        UniqueConstraint(
+            "github_id", "github_kind", name="uq_pr_comments_github"
+        ),
+        Index(
+            "ix_pr_comments_walkthrough_created",
+            "walkthrough_id",
+            "created_at",
+        ),
+        Index(
+            "ix_pr_comments_anchor",
+            "walkthrough_id",
+            "anchor_path",
+            "anchor_line",
+        ),
+        Index(
+            "ix_pr_comments_review",
+            "walkthrough_id",
+            "pull_request_review_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    walkthrough_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("walkthroughs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    github_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    github_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    author_login: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    author_avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    body: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    html_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    anchor_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    anchor_line: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    anchor_side: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    anchor_start_line: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    anchor_start_side: Mapped[str | None] = mapped_column(
+        String(8), nullable=True
+    )
+    is_outdated: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=sa.text("false"),
+        nullable=False,
+    )
+    review_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    in_reply_to_github_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    pull_request_review_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    sync_state: Mapped[str] = mapped_column(
+        String(16), default="synced", server_default="synced", nullable=False
+    )
+    sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    local_author_login: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    github_created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    github_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class User(Base):
+    """A GitHub user signed into Unravel.
+
+    ``encrypted_access_token`` stores the GitHub OAuth token enciphered with
+    Fernet (see ``auth.crypto``); decryption is intentionally explicit at the
+    call sites that need to hit the GitHub API on the user's behalf.
+    """
+
+    __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("github_id", name="uq_users_github_id"),
+        Index("ix_users_github_login", "github_login"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    github_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    github_login: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    token_scopes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class Session(Base):
+    """A server-side session row backing the HttpOnly cookie.
+
+    The cookie value is the signed (itsdangerous) sid; this row is the source
+    of truth for expiry, last-seen, and the FK to ``users``. Deleting the row
+    invalidates the session immediately.
+    """
+
+    __tablename__ = "sessions"
+    __table_args__ = (
+        Index("ix_sessions_user_id", "user_id"),
+        Index("ix_sessions_expires_at", "expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
 __all__ = [
     "Walkthrough",
     "Thread",
@@ -218,4 +411,7 @@ __all__ = [
     "Hunk",
     "ThreadStepHunk",
     "FieldEdit",
+    "PrComment",
+    "User",
+    "Session",
 ]
