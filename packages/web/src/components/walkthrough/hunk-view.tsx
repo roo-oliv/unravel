@@ -2,6 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ChevronDown,
+  ChevronRight,
   ChevronsDown,
   ChevronsUp,
   ExternalLink,
@@ -461,11 +463,16 @@ export function HunkView({
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
-          aria-label={collapsed ? "Expand hunk" : "Collapse hunk"}
+          aria-label={collapsed ? "Expand file" : "Collapse file"}
           aria-expanded={!collapsed}
-          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          title={collapsed ? "Expand file" : "Collapse file"}
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-transparent text-muted-foreground hover:border-border hover:bg-background hover:text-foreground"
         >
-          <Chevron collapsed={collapsed} />
+          {collapsed ? (
+            <ChevronRight className="size-4" aria-hidden="true" />
+          ) : (
+            <ChevronDown className="size-4" aria-hidden="true" />
+          )}
         </button>
         <button
           type="button"
@@ -553,23 +560,6 @@ export function HunkView({
         </div>
       )}
     </article>
-  );
-}
-
-function Chevron({ collapsed }: { collapsed: boolean }) {
-  // Simple inline chevron via CSS rotation keeps the import surface minimal.
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "inline-block size-3 origin-center transition-transform",
-        collapsed ? "rotate-[-90deg]" : "rotate-0",
-      )}
-      style={{
-        background:
-          "conic-gradient(from 135deg, transparent 0 25%, currentColor 25% 26%, transparent 26% 50%, transparent 50% 75%, currentColor 75% 76%, transparent 76% 100%)",
-      }}
-    />
   );
 }
 

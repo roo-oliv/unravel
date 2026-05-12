@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { FieldEditDTO } from "@/lib/api";
+import { useUiSettings } from "@/lib/ui-settings";
 import { cn } from "@/lib/utils";
 
 import { EditableField } from "./editable-field";
@@ -61,6 +62,9 @@ export function ThreadStage({
   const scrollRef = useRef<HTMLDivElement>(null);
   const threadHeaderRef = useRef<HTMLElement>(null);
   const [scrolled, setScrolled] = useState(false);
+  const fullWidth = useUiSettings((s) => s.fullWidth);
+  const overviewWidth = fullWidth ? "w-full" : "mx-auto max-w-3xl";
+  const threadWidth = fullWidth ? "w-full" : "mx-auto max-w-4xl";
 
   // For each file path touched by this thread, list every hunk that touches
   // it (preserving order). HunkView uses this to figure out which hunk should
@@ -127,7 +131,7 @@ export function ThreadStage({
         ref={scrollRef}
         className="h-full overflow-y-auto bg-background [overflow-anchor:none]"
       >
-        <article className="mx-auto max-w-3xl px-6 py-8">
+        <article className={cn(overviewWidth, "px-6 py-8")}>
           <header className="mb-8">
             <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
           </header>
@@ -194,7 +198,7 @@ export function ThreadStage({
           scrolled && "shadow-sm",
         )}
       >
-        <div className="mx-auto max-w-4xl px-6">
+        <div className={cn(threadWidth, "px-6")}>
           <div className={scrolled ? "py-2.5" : "pt-8"}>
             {editable ? (
               <EditableField
@@ -305,7 +309,7 @@ export function ThreadStage({
         {scrolled && <div className="border-b" aria-hidden="true" />}
       </header>
 
-      <article className="mx-auto max-w-4xl px-6 pb-16">
+      <article className={cn(threadWidth, "px-6 pb-16")}>
         <ol>
           {thread.steps.map((step, idx) => (
             <StickyStep

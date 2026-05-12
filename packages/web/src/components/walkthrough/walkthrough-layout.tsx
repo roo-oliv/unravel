@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -13,6 +13,7 @@ import { CommandPalette } from "./command-palette";
 import { PendingEditsBar } from "./pending-edits-bar";
 import { PendingReviewBar } from "./pending-review-bar";
 import { PrStatusBadge } from "./pr-status-badge";
+import { SettingsDialog } from "./settings-dialog";
 import { ShortcutsHelp } from "./shortcuts-help";
 import { ThreadList } from "./thread-list";
 import { ThreadStage } from "./thread-stage";
@@ -40,12 +41,23 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
   const [activeIndex, setActiveIndex] = useState<number>(-1);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // Counters increment on each press; HunkView reacts on change.
   const [collapseSignal, setCollapseSignal] = useState(0);
   const [expandSignal, setExpandSignal] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const hunkIndex = useMemo(() => indexHunks(walkthrough), [walkthrough]);
+
+  const diffTotals = useMemo(() => {
+    let additions = 0;
+    let deletions = 0;
+    for (const h of Object.values(hunkIndex)) {
+      additions += h.additions || 0;
+      deletions += h.deletions || 0;
+    }
+    return { additions, deletions };
+  }, [hunkIndex]);
 
   // Edit history (per-field popovers). Server-side append-only log; we group
   // it client-side by editKey so each EditableField gets just its own entries.
@@ -191,15 +203,29 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
             </kbd>
             <span className="hidden sm:inline">help</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Display settings"
+            title="Display settings"
+            className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+          >
+            <Settings className="size-3.5" aria-hidden="true" />
+          </button>
           <div className="ml-2 border-l pl-2">
             <UserMenu next={slug ? `/walkthrough/${slug}` : "/repos"} />
           </div>
         </div>
       </header>
 
-      {walkthroughUuid && (
+      {walkthroughUuid && walkthrough.pr && (
         <div className="row-start-2">
-          <PendingReviewBar walkthroughUuid={walkthroughUuid} />
+          <PendingReviewBar
+            walkthroughUuid={walkthroughUuid}
+            additions={diffTotals.additions}
+            deletions={diffTotals.deletions}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
         </div>
       )}
 
@@ -313,6 +339,7 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
         onSelect={setActiveIndex}
       />
       <ShortcutsHelp open={helpOpen} onOpenChange={setHelpOpen} />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 }
