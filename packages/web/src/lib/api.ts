@@ -112,9 +112,50 @@ export const api = {
     request<PrFileSliceDTO>(
       `/walkthroughs/${encodeURIComponent(walkthroughUuid)}/file?path=${encodeURIComponent(path)}&start=${start}&end=${end}`,
     ),
+  createReviewComment: (
+    walkthroughUuid: string,
+    payload: ReviewCommentPayload,
+  ) =>
+    request<CommentDTO>(
+      `/walkthroughs/${encodeURIComponent(walkthroughUuid)}/review-comments`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
+  submitReview: (walkthroughUuid: string, payload: ReviewSubmissionPayload) =>
+    request<ReviewSubmissionResult>(
+      `/walkthroughs/${encodeURIComponent(walkthroughUuid)}/reviews`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
   me: () => request<MeDTO>("/auth/me"),
   logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
 };
+
+export interface ReviewCommentPayload {
+  body: string;
+  path: string;
+  line: number;
+  side: "LEFT" | "RIGHT";
+  start_line?: number | null;
+  start_side?: "LEFT" | "RIGHT" | null;
+}
+
+export type ReviewEvent = "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
+
+export interface ReviewSubmissionPayload {
+  event: ReviewEvent;
+  body?: string | null;
+  comments: ReviewCommentPayload[];
+}
+
+export interface ReviewSubmissionResult {
+  review: CommentDTO | null;
+  comments: CommentDTO[];
+}
 
 export const API_BASE_URL = API_URL;
 

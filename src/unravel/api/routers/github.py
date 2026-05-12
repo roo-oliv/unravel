@@ -28,14 +28,18 @@ from unravel.api.deps import CurrentUser, auth_user
 from unravel.api.github_client import GitHubConfigError, GitHubError
 from unravel.api.services.github_sync import (
     CommentNotFoundError,
+    DraftReviewComment,
     InvalidReplyTargetError,
+    MissingCommitShaError,
     WalkthroughHasNoPrError,
     comment_to_dto,
     fetch_pr_file_lines,
     list_comments,
     post_issue_comment,
+    post_review_comment,
     post_review_comment_reply,
     refresh_pr,
+    submit_review,
     walkthrough_pr_to_dto,
 )
 from unravel.api.services.walkthrough_store import load_full_walkthrough
@@ -50,6 +54,30 @@ PR_AUTO_SYNC_MAX_AGE = timedelta(seconds=60)
 
 class CommentBody(BaseModel):
     body: str = Field(min_length=1, max_length=65_000)
+
+
+class ReviewCommentBody(BaseModel):
+    body: str = Field(min_length=1, max_length=65_000)
+    path: str = Field(min_length=1, max_length=2048)
+    line: int = Field(ge=1)
+    side: str = Field(default="RIGHT", pattern="^(LEFT|RIGHT)$")
+    start_line: int | None = Field(default=None, ge=1)
+    start_side: str | None = Field(default=None, pattern="^(LEFT|RIGHT)$")
+
+
+class ReviewDraftComment(BaseModel):
+    body: str = Field(min_length=1, max_length=65_000)
+    path: str = Field(min_length=1, max_length=2048)
+    line: int = Field(ge=1)
+    side: str = Field(default="RIGHT", pattern="^(LEFT|RIGHT)$")
+    start_line: int | None = Field(default=None, ge=1)
+    start_side: str | None = Field(default=None, pattern="^(LEFT|RIGHT)$")
+
+
+class ReviewSubmission(BaseModel):
+    event: str = Field(pattern="^(APPROVE|COMMENT|REQUEST_CHANGES)$")
+    body: str | None = Field(default=None, max_length=65_000)
+    comments: list[ReviewDraftComment] = Field(default_factory=list)
 
 
 @router.get("/walkthroughs/{walkthrough_uuid}/pr")
@@ -166,6 +194,112 @@ async def create_comment(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         ) from exc
     return comment_to_dto(row)
+
+
+@router.post(
+    "/walkthroughs/{walkthrough_uuid}/review-comments",
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_review_comment_endpoint(
+    walkthrough_uuid: UUID,
+    body: ReviewCommentBody,
+    user: CurrentUser = Depends(auth_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Post a single line-anchored review comment (no review wrapper)."""
+    try:
+        row = await post_review_comment(
+            db,
+            walkthrough_uuid,
+            body=body.body,
+            path=body.path,
+            line=body.line,
+            side=body.side,
+            start_line=body.start_line,
+            start_side=body.start_side,
+            local_author_login=user.github_login,
+            token=user.github_access_token,
+        )
+    except WalkthroughHasNoPrError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Walkthrough is not associated with a GitHub PR.",
+        ) from exc
+    except MissingCommitShaError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="PR has no recorded head SHA — refresh the PR first.",
+        ) from exc
+    except GitHubConfigError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    return comment_to_dto(row)
+
+
+@router.post(
+    "/walkthroughs/{walkthrough_uuid}/reviews",
+    status_code=status.HTTP_201_CREATED,
+)
+async def submit_review_endpoint(
+    walkthrough_uuid: UUID,
+    payload: ReviewSubmission,
+    user: CurrentUser = Depends(auth_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Submit a PR review (Approve / Comment / Request changes) with inline comments."""
+    if payload.event == "APPROVE" and not (payload.body or payload.comments):
+        # GitHub accepts a no-op approval but we still require *something* so
+        # users don't accidentally approve with an empty composer.
+        pass
+    if payload.event != "APPROVE" and not (payload.body or payload.comments):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A review must include a summary or at least one inline comment.",
+        )
+    drafts = [
+        DraftReviewComment(
+            path=c.path,
+            line=c.line,
+            side=c.side,
+            body=c.body,
+            start_line=c.start_line,
+            start_side=c.start_side,
+        )
+        for c in payload.comments
+    ]
+    try:
+        review_row, comment_rows = await submit_review(
+            db,
+            walkthrough_uuid,
+            event=payload.event,
+            body=payload.body,
+            comments=drafts,
+            local_author_login=user.github_login,
+            token=user.github_access_token,
+        )
+    except WalkthroughHasNoPrError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Walkthrough is not associated with a GitHub PR.",
+        ) from exc
+    except MissingCommitShaError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="PR has no recorded head SHA — refresh the PR first.",
+        ) from exc
+    except GitHubConfigError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except GitHubError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+    return {
+        "review": comment_to_dto(review_row) if review_row else None,
+        "comments": [comment_to_dto(c) for c in comment_rows],
+    }
 
 
 @router.get("/walkthroughs/{walkthrough_uuid}/file")

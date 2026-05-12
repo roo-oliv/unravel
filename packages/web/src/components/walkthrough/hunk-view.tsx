@@ -1,7 +1,13 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronsDown, ChevronsUp, ExternalLink, Loader2 } from "lucide-react";
+import {
+  ChevronsDown,
+  ChevronsUp,
+  ExternalLink,
+  Loader2,
+  Plus,
+} from "lucide-react";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { ThemedToken } from "shiki";
@@ -22,10 +28,52 @@ import {
   groupReviewCommentThreads,
   type CommentThread,
 } from "@/lib/comment-threads";
+import {
+  newPendingId,
+  usePendingReviewStore,
+} from "@/lib/pending-review";
 import { cn } from "@/lib/utils";
 
+import { CommentComposer } from "./comment-composer";
 import { Markdown } from "./markdown";
 import type { Hunk } from "./types";
+
+type LineSide = "LEFT" | "RIGHT";
+
+interface LineSelection {
+  side: LineSide;
+  start: number; // line number in `side` coords
+  end: number;
+}
+
+function selectableSide(row: RenderedRow): LineSide | null {
+  if (row.kind === "hunk") return null;
+  // Lines fetched via "Expand up/down" sit outside the PR diff that GitHub's
+  // review API knows about. Both REST and GraphQL reject anchors on those
+  // lines with ``Line could not be resolved`` — GitHub web sidesteps this
+  // with an internal session-level diff that isn't part of the public API,
+  // so we block selection there. Users can still comment on any line of the
+  // original hunks (added/deleted/context).
+  if (row.kind === "ctx-fetched") return null;
+  if (row.kind === "del") return row.oldLine != null ? "LEFT" : null;
+  return row.newLine != null ? "RIGHT" : null;
+}
+
+function lineForSide(row: RenderedRow, side: LineSide): number | null {
+  return side === "LEFT" ? row.oldLine : row.newLine;
+}
+
+function isLineInSelection(
+  row: RenderedRow,
+  selection: LineSelection | null,
+): boolean {
+  if (!selection) return false;
+  const line = lineForSide(row, selection.side);
+  if (line == null) return false;
+  const lo = Math.min(selection.start, selection.end);
+  const hi = Math.max(selection.start, selection.end);
+  return line >= lo && line <= hi;
+}
 
 const EXPAND_STEP = 20;
 const AUTO_EXPAND_MAX = 400;
@@ -33,6 +81,10 @@ const AUTO_EXPAND_MAX = 400;
 function lineClass(kind: RenderedKind): string {
   if (kind === "add") return "bg-diff-add/40";
   if (kind === "del") return "bg-diff-del/40";
+  // Lines fetched via Expand up/down sit outside the PR's diff and aren't
+  // commentable via GitHub's public API. A very subtle gray differentiates
+  // them from the real hunk lines so the user knows what's anchorable.
+  if (kind === "ctx-fetched") return "bg-muted/30";
   return "";
 }
 
@@ -336,6 +388,61 @@ export function HunkView({
     );
   }, [ownedThreads, threadsByRowKey]);
 
+  // ---- Inline review-comment selection ---------------------------------
+  // ``selection`` is the live drag; ``draftAnchor`` is what the inline
+  // composer renders against. On mousedown we set selection; on mousemove
+  // we extend it; on mouseup we promote it to a draft (commit).
+  const [selection, setSelection] = useState<LineSelection | null>(null);
+  const [draftAnchor, setDraftAnchor] = useState<LineSelection | null>(null);
+
+  useEffect(() => {
+    if (!selection) return;
+    const onUp = () => {
+      setDraftAnchor((prev) => {
+        // If a draft is already open and the user re-clicks the same line
+        // (no drag), keep the existing draft so we don't blow away their
+        // unsaved text. Otherwise promote the live selection.
+        if (
+          prev &&
+          prev.side === selection.side &&
+          prev.start === selection.start &&
+          prev.end === selection.end
+        ) {
+          return prev;
+        }
+        return { ...selection };
+      });
+      setSelection(null);
+    };
+    document.addEventListener("mouseup", onUp);
+    return () => document.removeEventListener("mouseup", onUp);
+  }, [selection]);
+
+  function startSelection(row: RenderedRow) {
+    const side = selectableSide(row);
+    if (!side) return;
+    const line = lineForSide(row, side);
+    if (line == null) return;
+    setSelection({ side, start: line, end: line });
+  }
+
+  function extendSelection(row: RenderedRow) {
+    setSelection((sel) => {
+      if (!sel) return sel;
+      const lineOnSide = lineForSide(row, sel.side);
+      if (lineOnSide == null) return sel; // not selectable on this side
+      if (lineOnSide === sel.end) return sel;
+      return { ...sel, end: lineOnSide };
+    });
+  }
+
+  function isDraftAnchorRow(row: RenderedRow): boolean {
+    if (!draftAnchor) return false;
+    const line = lineForSide(row, draftAnchor.side);
+    if (line == null) return false;
+    return line === Math.max(draftAnchor.start, draftAnchor.end);
+  }
+
   return (
     <article
       id={`hunk-${hunk.id}`}
@@ -407,8 +514,18 @@ export function HunkView({
                 key={row.key}
                 row={row}
                 hunkId={hunk.id}
+                filePath={hunk.file_path}
                 threads={threadsByRowKey.get(row.key) ?? []}
                 walkthroughUuid={walkthroughUuid}
+                isSelected={
+                  isLineInSelection(row, selection) ||
+                  isLineInSelection(row, draftAnchor)
+                }
+                draftAnchor={isDraftAnchorRow(row) ? draftAnchor : null}
+                isSelecting={!!selection}
+                onStartSelection={() => startSelection(row)}
+                onExtendSelection={() => extendSelection(row)}
+                onCancelDraft={() => setDraftAnchor(null)}
               />
             ))}
             <ExpandRow
@@ -495,17 +612,38 @@ function ExpandRow({
 function CodeAndThreads({
   row,
   hunkId,
+  filePath,
   threads,
   walkthroughUuid,
+  isSelected,
+  draftAnchor,
+  isSelecting,
+  onStartSelection,
+  onExtendSelection,
+  onCancelDraft,
 }: {
   row: RenderedRow;
   hunkId: string;
+  filePath: string;
   threads: CommentThread[];
   walkthroughUuid?: string;
+  isSelected: boolean;
+  draftAnchor: LineSelection | null;
+  isSelecting: boolean;
+  onStartSelection: () => void;
+  onExtendSelection: () => void;
+  onCancelDraft: () => void;
 }) {
   return (
     <>
-      <CodeLineRow row={row} hunkId={hunkId} />
+      <CodeLineRow
+        row={row}
+        hunkId={hunkId}
+        isSelected={isSelected}
+        isSelecting={isSelecting}
+        onStartSelection={onStartSelection}
+        onExtendSelection={onExtendSelection}
+      />
       {threads.map((t) => (
         <InlineThreadRow
           key={t.root.id}
@@ -513,22 +651,71 @@ function CodeAndThreads({
           walkthroughUuid={walkthroughUuid}
         />
       ))}
+      {draftAnchor && walkthroughUuid && (
+        <NewCommentDraftRow
+          walkthroughUuid={walkthroughUuid}
+          filePath={filePath}
+          anchor={draftAnchor}
+          onClose={onCancelDraft}
+        />
+      )}
     </>
   );
 }
 
-function CodeLineRow({ row, hunkId }: { row: RenderedRow; hunkId: string }) {
+function CodeLineRow({
+  row,
+  hunkId,
+  isSelected,
+  isSelecting,
+  onStartSelection,
+  onExtendSelection,
+}: {
+  row: RenderedRow;
+  hunkId: string;
+  isSelected: boolean;
+  isSelecting: boolean;
+  onStartSelection: () => void;
+  onExtendSelection: () => void;
+}) {
+  const side = selectableSide(row);
   return (
     <div
       data-hunk-id={hunkId}
       data-line-old={row.oldLine ?? undefined}
       data-line-new={row.newLine ?? undefined}
+      onMouseEnter={isSelecting ? onExtendSelection : undefined}
       className={cn(
-        "flex whitespace-pre",
+        "group relative flex whitespace-pre",
         lineClass(row.kind),
-        row.kind === "ctx-fetched" && "opacity-90",
+        row.kind === "ctx-fetched" && "opacity-80",
+        // GitHub-style yellow wash on selected lines (the soft #fff8c5 vibe).
+        // We use important so the diff add/del background doesn't override it
+        // when the user drags a selection over a hunk line.
+        isSelected && "!bg-yellow-100 dark:!bg-yellow-500/20",
       )}
     >
+      {side && (
+        <button
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onStartSelection();
+          }}
+          aria-label="Add a comment on this line"
+          title="Add a comment (drag to select multiple lines)"
+          className={cn(
+            "absolute left-[5.5rem] top-1/2 z-10 -translate-x-1/2 -translate-y-1/2",
+            "flex size-4 items-center justify-center rounded-sm",
+            "bg-blue-600 text-white shadow-sm hover:bg-blue-700",
+            "opacity-0 group-hover:opacity-100",
+            isSelected && "opacity-100",
+            "transition-opacity",
+          )}
+        >
+          <Plus className="size-3" aria-hidden="true" />
+        </button>
+      )}
       <Gutter line={row.oldLine} kind={row.kind} side="old" />
       <Gutter line={row.newLine} kind={row.kind} side="new" />
       <span
@@ -552,6 +739,132 @@ function CodeLineRow({ row, hunkId }: { row: RenderedRow; hunkId: string }) {
               </span>
             ))}
       </span>
+    </div>
+  );
+}
+
+function NewCommentDraftRow({
+  walkthroughUuid,
+  filePath,
+  anchor,
+  onClose,
+}: {
+  walkthroughUuid: string;
+  filePath: string;
+  anchor: LineSelection;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [body, setBody] = useState("");
+  const addToReview = usePendingReviewStore((s) => s.addComment);
+  const hasPendingReview = usePendingReviewStore(
+    (s) => (s.drafts[walkthroughUuid]?.comments.length ?? 0) > 0,
+  );
+
+  const lo = Math.min(anchor.start, anchor.end);
+  const hi = Math.max(anchor.start, anchor.end);
+  const isMultiLine = hi > lo;
+  const rangeLabel = isMultiLine
+    ? `${anchor.side === "LEFT" ? "L" : "R"}${lo}–${anchor.side === "LEFT" ? "L" : "R"}${hi}`
+    : `${anchor.side === "LEFT" ? "L" : "R"}${hi}`;
+
+  const submitSingle = useMutation({
+    mutationFn: () =>
+      api.createReviewComment(walkthroughUuid, {
+        body,
+        path: filePath,
+        line: hi,
+        side: anchor.side,
+        start_line: isMultiLine ? lo : null,
+        start_side: isMultiLine ? anchor.side : null,
+      }),
+    onSuccess: () => {
+      setBody("");
+      queryClient.invalidateQueries({
+        queryKey: ["comments", walkthroughUuid],
+      });
+      onClose();
+    },
+  });
+
+  const stageForReview = () => {
+    if (!body.trim()) return;
+    addToReview(walkthroughUuid, {
+      id: newPendingId(),
+      path: filePath,
+      line: hi,
+      side: anchor.side,
+      start_line: isMultiLine ? lo : null,
+      start_side: isMultiLine ? anchor.side : null,
+      body: body.trim(),
+      stagedAt: new Date().toISOString(),
+    });
+    setBody("");
+    onClose();
+  };
+
+  const handleSubmit = () => {
+    if (!body.trim() || submitSingle.isPending) return;
+    submitSingle.mutate();
+  };
+
+  return (
+    <div className="border-y bg-muted/30 px-3 py-2 font-sans text-sm">
+      <header className="mb-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+        <span className="font-mono">
+          New {isMultiLine ? "multi-line " : ""}comment on lines {rangeLabel}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="hover:text-foreground"
+        >
+          Dismiss
+        </button>
+      </header>
+      <CommentComposer
+        value={body}
+        onChange={setBody}
+        onSubmit={handleSubmit}
+        onCancel={onClose}
+        autoFocus
+        placeholder="Leave a comment (Markdown supported)…"
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={stageForReview}
+              disabled={!body.trim() || submitSingle.isPending}
+              className="inline-flex items-center gap-1 rounded border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-800 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-700/60 dark:bg-blue-950/60 dark:text-blue-200 dark:hover:bg-blue-900/60"
+            >
+              {hasPendingReview ? "Add to review" : "Start a review"}
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!body.trim() || submitSingle.isPending}
+              className="inline-flex items-center gap-1 rounded-md bg-foreground px-2 py-0.5 text-[11px] font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitSingle.isPending ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : null}
+              {submitSingle.isPending ? "Posting…" : "Add single comment"}
+            </button>
+          </>
+        }
+      />
+      {submitSingle.error && (
+        <p className="mt-1.5 text-[11px] text-destructive">
+          {(submitSingle.error as Error).message}
+        </p>
+      )}
     </div>
   );
 }
@@ -782,60 +1095,46 @@ function ReplyComposer({
       </button>
     );
   }
+  const handleSubmit = () => {
+    const v = draft.trim();
+    if (!v || submit.isPending) return;
+    submit.mutate(v);
+  };
+  const handleCancel = () => {
+    setOpen(false);
+    setDraft("");
+  };
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        const v = draft.trim();
-        if (!v || submit.isPending) return;
-        submit.mutate(v);
-      }}
-    >
-      <textarea
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        rows={2}
-        autoFocus
-        placeholder="Reply (Markdown)…"
-        className="w-full resize-y rounded-md border bg-background px-2 py-1 text-[11px] focus:border-foreground/40 focus:outline-none"
-        disabled={submit.isPending}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            const v = draft.trim();
-            if (v && !submit.isPending) submit.mutate(v);
-          }
-          if (e.key === "Escape") {
-            e.preventDefault();
-            setOpen(false);
-            setDraft("");
-          }
-        }}
-      />
-      <div className="mt-1 flex items-center justify-between gap-2">
-        <span className="text-[10px] text-muted-foreground">⌘↵ send · esc cancel</span>
-        <div className="flex items-center gap-2">
+    <CommentComposer
+      value={draft}
+      onChange={setDraft}
+      onSubmit={handleSubmit}
+      onCancel={handleCancel}
+      compact
+      rows={2}
+      autoFocus
+      placeholder="Reply (Markdown supported)…"
+      actions={
+        <>
           <button
             type="button"
-            onClick={() => {
-              setOpen(false);
-              setDraft("");
-            }}
+            onClick={handleCancel}
             className="text-[10px] text-muted-foreground hover:text-foreground"
           >
             Cancel
           </button>
           <button
-            type="submit"
+            type="button"
+            onClick={handleSubmit}
             disabled={!draft.trim() || submit.isPending}
             className="inline-flex items-center gap-1 rounded-md bg-foreground px-2 py-0.5 text-[11px] font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
           >
             {submit.isPending ? <Loader2 className="size-3 animate-spin" /> : null}
             {submit.isPending ? "Sending…" : "Reply"}
           </button>
-        </div>
-      </div>
-    </form>
+        </>
+      }
+    />
   );
 }
 

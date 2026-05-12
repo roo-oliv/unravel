@@ -11,6 +11,7 @@ import { api, type FieldEditDTO } from "@/lib/api";
 import { UserMenu } from "../user-menu";
 import { CommandPalette } from "./command-palette";
 import { PendingEditsBar } from "./pending-edits-bar";
+import { PendingReviewBar } from "./pending-review-bar";
 import { PrStatusBadge } from "./pr-status-badge";
 import { ShortcutsHelp } from "./shortcuts-help";
 import { ThreadList } from "./thread-list";
@@ -129,7 +130,7 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
       : `${String(activeIndex + 1).padStart(2, "0")} / ${String(order.length).padStart(2, "0")}`;
 
   return (
-    <div className="h-screen grid grid-rows-[2.25rem_auto_1fr_1.75rem] overflow-hidden">
+    <div className="h-screen grid grid-rows-[2.25rem_auto_auto_1fr_1.75rem] overflow-hidden">
       {/* Each slot pins its grid-row explicitly so the layout stays put when */}
       {/* PendingEditsBar renders null (no pending edits) — without this, */}
       {/* auto-placement collapses the bar slot and footer absorbs the 1fr row. */}
@@ -198,12 +199,18 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
 
       {walkthroughUuid && (
         <div className="row-start-2">
+          <PendingReviewBar walkthroughUuid={walkthroughUuid} />
+        </div>
+      )}
+
+      {walkthroughUuid && (
+        <div className="row-start-3">
           <PendingEditsBar walkthroughUuid={walkthroughUuid} slug={slug} />
         </div>
       )}
 
       <div
-        className="row-start-3 grid overflow-hidden transition-[grid-template-columns] duration-150"
+        className="row-start-4 grid overflow-hidden transition-[grid-template-columns] duration-150"
         style={{
           gridTemplateColumns: gridColumnsFor({ sidebarCollapsed }),
         }}
@@ -264,7 +271,7 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
         </main>
       </div>
 
-      <footer className="row-start-4 flex items-center justify-between gap-4 border-t bg-muted/20 px-4 font-mono text-[10px] text-muted-foreground">
+      <footer className="row-start-5 flex items-center justify-between gap-4 border-t bg-muted/20 px-4 font-mono text-[10px] text-muted-foreground">
         <div className="flex min-w-0 flex-1 items-center gap-x-4 gap-y-0.5 overflow-hidden whitespace-nowrap">
           <span className="flex items-center gap-1">
             <kbd className="rounded border bg-background px-1 py-0.5">j</kbd>

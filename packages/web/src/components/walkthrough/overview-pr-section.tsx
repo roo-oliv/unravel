@@ -20,6 +20,7 @@ import {
   type PrConversationItem,
 } from "@/lib/comment-threads";
 
+import { CommentComposer } from "./comment-composer";
 import { Markdown } from "./markdown";
 
 interface Props {
@@ -480,68 +481,54 @@ function ReplyComposer({
     );
   }
 
+  const handleSubmit = () => {
+    const value = draft.trim();
+    if (!value || submit.isPending) return;
+    submit.mutate(value);
+  };
+  const handleCancel = () => {
+    setOpen(false);
+    setDraft("");
+  };
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        const value = draft.trim();
-        if (!value || submit.isPending) return;
-        submit.mutate(value);
-      }}
-    >
-      <textarea
+    <div>
+      <CommentComposer
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        rows={2}
+        onChange={setDraft}
+        onSubmit={handleSubmit}
+        onCancel={handleCancel}
         autoFocus
-        placeholder="Reply (Markdown)…"
-        className="w-full resize-y rounded-md border bg-background px-2 py-1.5 text-xs leading-relaxed focus:border-foreground/40 focus:outline-none"
-        disabled={submit.isPending}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            const value = draft.trim();
-            if (value && !submit.isPending) submit.mutate(value);
-          }
-          if (e.key === "Escape") {
-            e.preventDefault();
-            setOpen(false);
-            setDraft("");
-          }
-        }}
+        rows={3}
+        compact
+        placeholder="Reply (Markdown supported)…"
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!draft.trim() || submit.isPending}
+              className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-2 py-1 text-[11px] font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submit.isPending ? <Loader2 className="size-3 animate-spin" /> : null}
+              {submit.isPending ? "Sending…" : "Reply"}
+            </button>
+          </>
+        }
       />
-      <div className="mt-1.5 flex items-center justify-between gap-2">
-        <span className="text-[10px] text-muted-foreground">
-          ⌘↵ to send · esc to cancel
-        </span>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              setDraft("");
-            }}
-            className="text-[11px] text-muted-foreground hover:text-foreground"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!draft.trim() || submit.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-2 py-1 text-[11px] font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {submit.isPending ? <Loader2 className="size-3 animate-spin" /> : null}
-            {submit.isPending ? "Sending…" : "Reply"}
-          </button>
-        </div>
-      </div>
       {submit.error && (
         <p className="mt-1 flex items-center gap-1 text-[11px] text-destructive">
           <AlertCircle className="size-3" />
           {(submit.error as Error).message}
         </p>
       )}
-    </form>
+    </div>
   );
 }
 
@@ -564,50 +551,37 @@ function NewCommentComposer({
     },
   });
 
+  const handleSubmit = () => {
+    const value = draft.trim();
+    if (!value || submit.isPending) return;
+    submit.mutate(value);
+  };
   return (
-    <form
-      className="mt-6 rounded-md border bg-background p-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const value = draft.trim();
-        if (!value || submit.isPending) return;
-        submit.mutate(value);
-      }}
-    >
-      <textarea
+    <div className="mt-6">
+      <CommentComposer
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        rows={3}
-        placeholder="Write a PR comment (Markdown)…"
-        className="w-full resize-y rounded-md border bg-background px-2 py-1.5 text-xs leading-relaxed focus:border-foreground/40 focus:outline-none"
-        disabled={submit.isPending}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            const value = draft.trim();
-            if (value && !submit.isPending) submit.mutate(value);
-          }
-        }}
+        onChange={setDraft}
+        onSubmit={handleSubmit}
+        rows={4}
+        placeholder="Write a PR comment (Markdown supported)…"
+        actions={
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!draft.trim() || submit.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-2.5 py-1 text-xs font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {submit.isPending ? <Loader2 className="size-3 animate-spin" /> : null}
+            {submit.isPending ? "Sending…" : "Comment"}
+          </button>
+        }
       />
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="text-[10px] text-muted-foreground">
-          ⌘↵ to send · posts to GitHub
-        </span>
-        <button
-          type="submit"
-          disabled={!draft.trim() || submit.isPending}
-          className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-2.5 py-1 text-xs font-medium text-background disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {submit.isPending ? <Loader2 className="size-3 animate-spin" /> : null}
-          {submit.isPending ? "Sending…" : "Comment"}
-        </button>
-      </div>
       {submit.error && (
         <p className="mt-2 flex items-center gap-1 text-[11px] text-destructive">
           <AlertCircle className="size-3" />
           {(submit.error as Error).message}
         </p>
       )}
-    </form>
+    </div>
   );
 }

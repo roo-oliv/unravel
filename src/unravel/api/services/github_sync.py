@@ -8,6 +8,7 @@ trigger fires (background polling, manual refresh, post-create resync).
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -17,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from unravel.api import github_client
 from unravel.api.db_models import PrComment, Walkthrough
+from unravel.api.github_client import GitHubError
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,7 @@ async def refresh_pr(
     walkthrough.pr_title = pr.title or walkthrough.pr_title
     walkthrough.pr_body = pr.body
     walkthrough.pr_head_sha = pr.head_sha or walkthrough.pr_head_sha
+    walkthrough.pr_node_id = pr.node_id or walkthrough.pr_node_id
     walkthrough.pr_synced_at = datetime.now(UTC)
 
     # Pull comments in three buckets — issue (top-level), reviews, review
@@ -132,6 +135,284 @@ async def post_issue_comment(
     await session.commit()
     await session.refresh(row)
     return row
+
+
+async def post_review_comment(
+    session: AsyncSession,
+    walkthrough_id: UUID,
+    *,
+    body: str,
+    path: str,
+    line: int,
+    side: str,
+    start_line: int | None,
+    start_side: str | None,
+    local_author_login: str,
+    token: str | None = None,
+) -> PrComment:
+    """Post a single line-anchored review comment (no review wrapper).
+
+    Mirrors ``post_issue_comment``: persist a ``syncing`` row first, hit
+    GitHub, flip to ``synced``/``failed``. Anchor fields are populated up
+    front so the UI can render the optimistic row inline.
+    """
+    # Single inline comments go through the same ``addPullRequestReview``
+    # mutation as batch reviews (with ``event: COMMENT`` and one thread). That
+    # mirrors GitHub web's "Add single comment" which is wrapped in a
+    # one-comment review under the hood, and avoids the silent-null-thread
+    # failure mode of ``addPullRequestReviewThread`` when the line is
+    # outside the diff hunks.
+    draft = DraftReviewComment(
+        path=path,
+        line=line,
+        side=side,
+        body=body,
+        start_line=start_line,
+        start_side=start_side,
+    )
+    _, rows = await submit_review(
+        session,
+        walkthrough_id,
+        event="COMMENT",
+        body=None,
+        comments=[draft],
+        local_author_login=local_author_login,
+        token=token,
+    )
+    if not rows:
+        # ``submit_review`` only emits a row when GitHub returned a matching
+        # thread. An empty list here means the round-trip succeeded but
+        # GitHub anchored nothing — surface a failure row so the UI can
+        # show the user.
+        row = PrComment(
+            walkthrough_id=walkthrough_id,
+            github_kind="review_comment",
+            author_login=local_author_login,
+            body=body,
+            sync_state="failed",
+            sync_error=(
+                "GitHub accepted the review but didn't return a thread — "
+                "the line or path likely couldn't be anchored."
+            ),
+            local_author_login=local_author_login,
+            anchor_path=path,
+            anchor_line=line,
+            anchor_side=side,
+            anchor_start_line=(
+                start_line if start_line and start_line != line else None
+            ),
+            anchor_start_side=(
+                start_side if start_line and start_line != line else None
+            ),
+        )
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+        return row
+    return rows[0]
+
+
+@dataclass(frozen=True)
+class DraftReviewComment:
+    """One inline draft comment in a pending review."""
+
+    path: str
+    line: int
+    side: str
+    body: str
+    start_line: int | None = None
+    start_side: str | None = None
+
+
+async def submit_review(
+    session: AsyncSession,
+    walkthrough_id: UUID,
+    *,
+    event: str,
+    body: str | None,
+    comments: list[DraftReviewComment],
+    local_author_login: str,
+    token: str | None = None,
+) -> tuple[PrComment | None, list[PrComment]]:
+    """Submit a pending review with optional summary + inline comments.
+
+    ``event`` is one of ``APPROVE``, ``COMMENT``, ``REQUEST_CHANGES``. Inline
+    rows are inserted ``syncing`` first; on the GitHub round-trip success
+    they're updated with the canonical ids and the review row is upserted.
+
+    Returns ``(review_row, comment_rows)``. ``review_row`` is ``None`` when
+    GitHub didn't return a body (e.g. an Approve with no summary).
+    """
+    walkthrough = await _load(session, walkthrough_id)
+    if not (walkthrough.repo_full_name and walkthrough.pr_number):
+        raise WalkthroughHasNoPrError(str(walkthrough_id))
+    if event not in {"APPROVE", "COMMENT", "REQUEST_CHANGES"}:
+        raise ValueError(f"Invalid review event: {event!r}")
+    pr_node_id = await _ensure_pr_node_id(session, walkthrough, token=token)
+
+    # Insert optimistic rows for each inline comment so the UI keeps them
+    # visible even if the round-trip is slow.
+    local_rows: list[PrComment] = []
+    for draft in comments:
+        row = PrComment(
+            walkthrough_id=walkthrough_id,
+            github_kind="review_comment",
+            author_login=local_author_login,
+            body=draft.body,
+            sync_state="syncing",
+            local_author_login=local_author_login,
+            anchor_path=draft.path,
+            anchor_line=draft.line,
+            anchor_side=draft.side,
+            anchor_start_line=(
+                draft.start_line
+                if draft.start_line and draft.start_line != draft.line
+                else None
+            ),
+            anchor_start_side=(
+                draft.start_side
+                if draft.start_line and draft.start_line != draft.line
+                else None
+            ),
+        )
+        session.add(row)
+        local_rows.append(row)
+    await session.commit()
+    for row in local_rows:
+        await session.refresh(row)
+
+    try:
+        review, review_comments = await github_client.create_review_with_threads(
+            pr_node_id=pr_node_id,
+            event=event,
+            body=body,
+            threads=[
+                {
+                    "path": c.path,
+                    "body": c.body,
+                    "line": c.line,
+                    "side": c.side,
+                    "start_line": c.start_line,
+                    "start_side": c.start_side,
+                }
+                for c in comments
+            ],
+            commit_oid=walkthrough.pr_head_sha,
+            token=token,
+        )
+    except Exception:  # noqa: BLE001 — surface every failure to the UI
+        logger.exception("create_review failed")
+        # Drop the optimistic rows: GitHub didn't accept the batch, and the
+        # drafts still live in the client's pending-review store so the user
+        # can edit + retry without us leaving orphan rows behind.
+        for row in local_rows:
+            await session.delete(row)
+        await session.commit()
+        raise
+
+    # Pair local rows to fetched review_comments by (path, line, body). When
+    # a local row can't be matched we delete it: GitHub accepted the review
+    # so any leftover ``syncing`` row would be a duplicate ghost. The next
+    # refresh will pull the canonical row in via ``_upsert_comments``.
+    matched: set[int] = set()
+    unmatched_rows: list[PrComment] = []
+    for row in local_rows:
+        paired = False
+        for idx, c in enumerate(review_comments):
+            if idx in matched:
+                continue
+            if (
+                c.anchor_path == row.anchor_path
+                and c.anchor_line == row.anchor_line
+                and c.body == row.body
+            ):
+                row.github_id = c.github_id
+                row.author_login = c.author_login or row.author_login
+                row.author_avatar_url = c.author_avatar_url
+                row.html_url = c.html_url
+                row.anchor_path = c.anchor_path or row.anchor_path
+                row.anchor_line = c.anchor_line or row.anchor_line
+                row.anchor_side = c.anchor_side or row.anchor_side
+                row.anchor_start_line = c.anchor_start_line or row.anchor_start_line
+                row.anchor_start_side = c.anchor_start_side or row.anchor_start_side
+                row.is_outdated = c.is_outdated
+                row.pull_request_review_id = c.pull_request_review_id
+                row.github_created_at = c.github_created_at
+                row.github_updated_at = c.github_updated_at
+                row.sync_state = "synced"
+                row.sync_error = None
+                matched.add(idx)
+                paired = True
+                break
+        if not paired:
+            unmatched_rows.append(row)
+    for row in unmatched_rows:
+        await session.delete(row)
+    local_rows = [row for row in local_rows if row not in unmatched_rows]
+
+    review_row: PrComment | None = None
+    if (body and body.strip()) or review.review_state in {
+        "APPROVED",
+        "CHANGES_REQUESTED",
+    }:
+        review_row = PrComment(
+            walkthrough_id=walkthrough_id,
+            github_id=review.github_id,
+            github_kind="review",
+            author_login=review.author_login,
+            author_avatar_url=review.author_avatar_url,
+            body=review.body,
+            html_url=review.html_url,
+            review_state=review.review_state,
+            pull_request_review_id=review.pull_request_review_id,
+            github_created_at=review.github_created_at,
+            github_updated_at=review.github_updated_at,
+            sync_state="synced",
+            local_author_login=local_author_login,
+        )
+        session.add(review_row)
+
+    await session.commit()
+    for row in local_rows:
+        await session.refresh(row)
+    if review_row is not None:
+        await session.refresh(review_row)
+    return review_row, local_rows
+
+
+class MissingCommitShaError(RuntimeError):
+    """The walkthrough's PR has no recorded head SHA — can't anchor reviews."""
+
+
+async def _ensure_pr_node_id(
+    session: AsyncSession,
+    walkthrough: Walkthrough,
+    *,
+    token: str | None,
+) -> str:
+    """Resolve and persist the PR's GraphQL global id.
+
+    Walkthroughs synced before the ``pr_node_id`` column existed don't have
+    one stored; fall back to a fresh ``fetch_pr`` to fill it in, so callers
+    don't have to refresh the PR manually.
+    """
+    if walkthrough.pr_node_id:
+        return walkthrough.pr_node_id
+    if not (walkthrough.repo_full_name and walkthrough.pr_number):
+        raise WalkthroughHasNoPrError(str(walkthrough.id))
+    pr = await github_client.fetch_pr(
+        walkthrough.repo_full_name, walkthrough.pr_number, token=token
+    )
+    walkthrough.pr_node_id = pr.node_id or walkthrough.pr_node_id
+    if pr.head_sha and not walkthrough.pr_head_sha:
+        walkthrough.pr_head_sha = pr.head_sha
+    await session.commit()
+    if not walkthrough.pr_node_id:
+        raise GitHubError(
+            500,
+            "GitHub returned no node_id for the PR — can't submit review.",
+        )
+    return walkthrough.pr_node_id
 
 
 async def post_review_comment_reply(

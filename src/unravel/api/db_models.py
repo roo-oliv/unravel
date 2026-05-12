@@ -61,6 +61,10 @@ class Walkthrough(Base):
     )
     pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pr_head_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # PR's GraphQL global id (``node_id``). Required for the GraphQL review
+    # mutations, which accept comments on lines outside the diff hunks (the
+    # REST endpoints don't). Backfilled on the next ``refresh_pr``.
+    pr_node_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pr_html_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     pr_title: Mapped[str | None] = mapped_column(Text, nullable=True)
     pr_body: Mapped[str | None] = mapped_column(Text, nullable=True)
