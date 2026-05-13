@@ -883,12 +883,14 @@ def _run(
             render_rich(walkthrough, stdout)
         else:
             from unravel.tui import UnravelApp
+            from unravel.tui.review_state import PrContext
 
             app = UnravelApp(
                 walkthrough=walkthrough,
                 all_hunks=hunks,
                 source_info=source_info,
                 diff_cfg=config.diff,
+                pr_ctx=PrContext.from_metadata(walkthrough.metadata),
             )
             app.run()
 

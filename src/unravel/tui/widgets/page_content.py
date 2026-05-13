@@ -13,6 +13,12 @@ from rich.text import Text
 
 from unravel.config import DiffDisplayConfig
 from unravel.models import EXTENSION_LANGUAGES, Hunk, Thread
+from unravel.tui.review_state import (
+    PendingReviewComment,
+    PrSnapshot,
+    ReviewComment,
+    hunk_window_contains,
+)
 from unravel.tui.state import WalkthroughState
 
 # Background tints for added / removed diff lines. Dark hues that sit on top
@@ -143,6 +149,10 @@ def _render_overview(state: WalkthroughState) -> RenderableType:
         Text("Press Right Arrow → to start.", style="dim italic")
     )
 
+    from unravel.tui.widgets.pr_feed import render_pr_feed
+
+    parts.extend(render_pr_feed(state))
+
     return Group(*parts)
 
 
@@ -232,10 +242,17 @@ def _render_thread_rows(
                     f"{hunk.new_start + hunk.new_count})",
                     style="dim",
                 )
+            _append_comment_badge(file_line, hunk, state)
             parts.append(file_line)
 
             if is_expanded:
-                parts.append(_render_hunk_diff(hunk, state.diff_cfg))
+                parts.append(
+                    _render_hunk_diff(
+                        hunk,
+                        state.diff_cfg,
+                        overlays=_hunk_overlays_by_anchor(hunk, state),
+                    )
+                )
 
             row_cursor += 1
 
@@ -255,29 +272,8 @@ def _resolve_language(hunk: Hunk) -> str:
     return EXTENSION_LANGUAGES.get(suffix, "text")
 
 
-def _render_hunk_diff(hunk: Hunk, diff_cfg: DiffDisplayConfig) -> RenderableType:
-    """Render a single hunk's diff content with optional language-aware highlights.
-
-    The output is a Table with (old_no | new_no | sign | code) columns, where
-    added/removed lines are tinted green/red across the entire row. Lines are
-    either wrapped to the column width or allowed to extend off-screen (and
-    revealed via horizontal scrolling) depending on ``diff_cfg.wrap_mode``.
-    """
-    if hunk.content == "[binary file]":
-        return Text("      (binary file)", style="dim")
-    if not hunk.content:
-        return Text("      (no diff content available)", style="dim italic")
-
-    language = _resolve_language(hunk)
-    # A dummy Syntax instance is enough to borrow its Pygments lexer +
-    # theme-aware token colorizer via .highlight(). We never render the
-    # Syntax itself — only per-line Text objects.
-    syntax = (
-        Syntax("", language, theme=diff_cfg.theme, tab_size=4)
-        if diff_cfg.syntax_highlight
-        else None
-    )
-
+def _new_diff_table(diff_cfg: DiffDisplayConfig) -> Table:
+    """Build an empty diff Table with the configured columns."""
     table = Table(
         show_header=False,
         box=None,
@@ -301,6 +297,50 @@ def _render_hunk_diff(hunk: Hunk, diff_cfg: DiffDisplayConfig) -> RenderableType
         no_wrap=not wrap_code,
         overflow="fold" if wrap_code else "ignore",
     )
+    return table
+
+
+def _render_hunk_diff(
+    hunk: Hunk,
+    diff_cfg: DiffDisplayConfig,
+    overlays: dict[tuple[str, int], list[RenderableType]] | None = None,
+) -> RenderableType:
+    """Render a single hunk's diff, optionally splitting around inline overlays.
+
+    The output is a Panel wrapping a Group of segments. Without overlays it's
+    just one Table (the original behavior). With overlays — keyed by
+    ``(side, line_no)`` — the diff table is broken into sub-tables and the
+    overlay renderables are inserted right after the anchor line, so a
+    review comment for line 42 lands in the middle of the diff block.
+    """
+    if hunk.content == "[binary file]":
+        return Text("      (binary file)", style="dim")
+    if not hunk.content:
+        return Text("      (no diff content available)", style="dim italic")
+
+    overlays = overlays or {}
+    language = _resolve_language(hunk)
+    # A dummy Syntax instance is enough to borrow its Pygments lexer +
+    # theme-aware token colorizer via .highlight(). We never render the
+    # Syntax itself — only per-line Text objects.
+    syntax = (
+        Syntax("", language, theme=diff_cfg.theme, tab_size=4)
+        if diff_cfg.syntax_highlight
+        else None
+    )
+
+    segments: list[RenderableType] = []
+    table = _new_diff_table(diff_cfg)
+    table_has_rows = False
+
+    def flush_for_overlay(anchor: tuple[str, int]) -> None:
+        nonlocal table, table_has_rows
+        if table_has_rows:
+            segments.append(table)
+        for o in overlays.get(anchor, []):
+            segments.append(o)
+        table = _new_diff_table(diff_cfg)
+        table_has_rows = False
 
     old_no = hunk.old_start
     new_no = hunk.new_start
@@ -317,6 +357,9 @@ def _render_hunk_diff(hunk: Hunk, diff_cfg: DiffDisplayConfig) -> RenderableType
                 sign=" ",
                 code_text=Text(""),
             )
+            table_has_rows = True
+            if ("RIGHT", new_no) in overlays:
+                flush_for_overlay(("RIGHT", new_no))
             old_no += 1
             new_no += 1
             continue
@@ -328,6 +371,7 @@ def _render_hunk_diff(hunk: Hunk, diff_cfg: DiffDisplayConfig) -> RenderableType
                 table.add_row("", "", "", span)
             else:
                 table.add_row("", span)
+            table_has_rows = True
             continue
 
         sign, body = raw[0], raw[1:]
@@ -344,6 +388,9 @@ def _render_hunk_diff(hunk: Hunk, diff_cfg: DiffDisplayConfig) -> RenderableType
                 code_text=code_text,
                 sign_style="bold green",
             )
+            table_has_rows = True
+            if ("RIGHT", new_no) in overlays:
+                flush_for_overlay(("RIGHT", new_no))
             new_no += 1
         elif sign == "-":
             _add_diff_row(
@@ -356,6 +403,9 @@ def _render_hunk_diff(hunk: Hunk, diff_cfg: DiffDisplayConfig) -> RenderableType
                 code_text=code_text,
                 sign_style="bold red",
             )
+            table_has_rows = True
+            if ("LEFT", old_no) in overlays:
+                flush_for_overlay(("LEFT", old_no))
             old_no += 1
         else:
             _add_diff_row(
@@ -367,10 +417,22 @@ def _render_hunk_diff(hunk: Hunk, diff_cfg: DiffDisplayConfig) -> RenderableType
                 sign=" ",
                 code_text=code_text,
             )
+            table_has_rows = True
+            # Context line — could be anchored from either side; prefer RIGHT,
+            # then LEFT, so a single comment doesn't render twice.
+            if ("RIGHT", new_no) in overlays:
+                flush_for_overlay(("RIGHT", new_no))
+            elif ("LEFT", old_no) in overlays:
+                flush_for_overlay(("LEFT", old_no))
             old_no += 1
             new_no += 1
 
-    return Panel(table, border_style="dim", padding=(0, 1))
+    if table_has_rows:
+        segments.append(table)
+
+    if len(segments) == 1:
+        return Panel(segments[0], border_style="dim", padding=(0, 1))
+    return Panel(Group(*segments), border_style="dim", padding=(0, 1))
 
 
 def _highlight_line(syntax: Syntax | None, body: str) -> Text:
@@ -514,10 +576,17 @@ def _render_full_diff(state: WalkthroughState) -> RenderableType:
                 )
             if hunk.id not in covered:
                 row_line.append("  [orphaned]", style="bold red")
+            _append_comment_badge(row_line, hunk, state)
             parts.append(row_line)
 
             if is_expanded:
-                parts.append(_render_hunk_diff(hunk, state.diff_cfg))
+                parts.append(
+                    _render_hunk_diff(
+                        hunk,
+                        state.diff_cfg,
+                        overlays=_hunk_overlays_by_anchor(hunk, state),
+                    )
+                )
 
         parts.append(Text(""))
 
@@ -532,3 +601,154 @@ def _covered_hunk_ids(state: WalkthroughState) -> set[str]:
                 if h.id:
                     covered.add(h.id)
     return covered
+
+
+# ---------- Review overlay (inline comments + pending drafts) ----------
+
+
+def _hunk_overlays_by_anchor(
+    hunk: Hunk, state: WalkthroughState
+) -> dict[tuple[str, int], list[RenderableType]]:
+    """Index review threads + pending drafts by the line they anchor to.
+
+    Key is ``(side, line_no)`` where side is ``"LEFT"`` (deleted side, old
+    line numbers) or ``"RIGHT"`` (added/context side, new line numbers).
+    Multiple overlays on the same line render in order: existing threads
+    first, then pending drafts.
+    """
+    snap = state.pr_snapshot
+    out: dict[tuple[str, int], list[RenderableType]] = {}
+
+    existing = _select_existing_for_hunk(hunk, snap) if snap else []
+    for thread in _group_review_threads(existing):
+        root = thread[0]
+        if root.line is None:
+            continue
+        key = (root.side, root.line)
+        out.setdefault(key, []).append(_render_review_thread_panel(thread))
+
+    for c in state.pending_review.comments:
+        if c.path != hunk.file_path:
+            continue
+        if not hunk_window_contains(
+            line=c.line,
+            side=c.side,
+            new_start=hunk.new_start,
+            new_count=hunk.new_count,
+            old_start=hunk.old_start,
+            old_count=hunk.old_count,
+        ):
+            continue
+        out.setdefault((c.side, c.line), []).append(_render_pending_panel(c))
+
+    return out
+
+
+def _hunk_overlay_counts(
+    hunk: Hunk, state: WalkthroughState
+) -> tuple[int, int]:
+    """(existing_thread_count, pending_count) inside this hunk's window."""
+    snap = state.pr_snapshot
+    existing = _select_existing_for_hunk(hunk, snap) if snap else []
+    thread_count = len(_group_review_threads(existing))
+    pending_count = sum(
+        1
+        for c in state.pending_review.comments
+        if c.path == hunk.file_path
+        and hunk_window_contains(
+            line=c.line,
+            side=c.side,
+            new_start=hunk.new_start,
+            new_count=hunk.new_count,
+            old_start=hunk.old_start,
+            old_count=hunk.old_count,
+        )
+    )
+    return thread_count, pending_count
+
+
+def _append_comment_badge(line: Text, hunk: Hunk, state: WalkthroughState) -> None:
+    """Append a ``💬 N`` badge to a file/hunk row when comments anchor inside.
+
+    Pending drafts get a separate ``⏳ M`` so the reviewer can tell at a glance
+    whether unsynced drafts live in the collapsed hunk.
+    """
+    threads, pending = _hunk_overlay_counts(hunk, state)
+    if threads:
+        line.append(f"  💬 {threads}", style="cyan")
+    if pending:
+        line.append(f"  ⏳ {pending}", style="yellow")
+
+
+def _select_existing_for_hunk(hunk: Hunk, snap: PrSnapshot) -> list[ReviewComment]:
+    return [
+        rc
+        for rc in snap.review_comments
+        if rc.path == hunk.file_path
+        and hunk_window_contains(
+            line=rc.line,
+            side=rc.side,
+            new_start=hunk.new_start,
+            new_count=hunk.new_count,
+            old_start=hunk.old_start,
+            old_count=hunk.old_count,
+        )
+    ]
+
+
+def _group_review_threads(
+    comments: list[ReviewComment],
+) -> list[list[ReviewComment]]:
+    """Group inline comments by their thread root (in_reply_to_id chain)."""
+    by_id = {c.id: c for c in comments}
+    roots: dict[int, list[ReviewComment]] = {}
+    for c in sorted(comments, key=lambda x: x.created_at):
+        root_id = c.id
+        cur = c
+        while cur.in_reply_to_id and cur.in_reply_to_id in by_id:
+            cur = by_id[cur.in_reply_to_id]
+            root_id = cur.id
+        roots.setdefault(root_id, []).append(c)
+    return list(roots.values())
+
+
+def _render_review_thread_panel(thread: list[ReviewComment]) -> Panel:
+    root = thread[0]
+    header = Text()
+    line_label = (
+        f"{root.start_line}-{root.line}"
+        if root.start_line and root.line and root.start_line != root.line
+        else f"{root.line}"
+    )
+    header.append(f"  💬 line {line_label}", style="bold cyan")
+    header.append(f"  [{root.side}]", style="dim")
+    if root.is_outdated:
+        header.append("  (outdated)", style="dim italic")
+    parts: list = [header]
+    for c in thread:
+        row = Text()
+        row.append(f"    @{c.author}", style="cyan")
+        row.append("  ")
+        body = c.body.strip() or "(empty)"
+        row.append(body)
+        parts.append(row)
+    return Panel(
+        Group(*parts), border_style="cyan", padding=(0, 1), expand=False
+    )
+
+
+def _render_pending_panel(c: PendingReviewComment) -> Panel:
+    header = Text()
+    line_label = (
+        f"{c.start_line}-{c.line}"
+        if c.start_line and c.start_line != c.line
+        else f"{c.line}"
+    )
+    header.append(f"  ⏳ pending line {line_label}", style="bold yellow")
+    header.append(f"  [{c.side}]", style="dim")
+    row = Text()
+    row.append("    ", style="dim")
+    row.append(c.body.strip() or "(empty)", style="italic")
+    return Panel(
+        Group(header, row), border_style="yellow", padding=(0, 1), expand=False
+    )

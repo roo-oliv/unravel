@@ -7,6 +7,7 @@ from typing import Literal
 
 from unravel.config import DiffDisplayConfig
 from unravel.models import Hunk, SourceInfo, Thread, ThreadStep, Walkthrough
+from unravel.tui.review_state import PendingReview, PrContext, PrSnapshot
 
 PageStatus = Literal["completed", "current", "unvisited"]
 
@@ -42,6 +43,12 @@ class WalkthroughState:
     # Tracking
     visited_pages: set[int] = field(default_factory=set)
     expanded_rows: set[tuple[int, int]] = field(default_factory=set)
+
+    # GitHub PR review (populated only when launched from `unravel pr`)
+    pr_ctx: PrContext | None = None
+    pr_snapshot: PrSnapshot | None = None
+    pr_snapshot_error: str | None = None
+    pending_review: PendingReview = field(default_factory=PendingReview)
 
     def __post_init__(self) -> None:
         order = self.walkthrough.suggested_order
