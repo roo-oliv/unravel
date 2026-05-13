@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
+import { ThemeScript } from "@/components/theme/theme-script";
 
 import "./globals.css";
 
@@ -32,6 +33,9 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${inter.variable} ${jetbrainsMono.variable}`}
     >
+      <head>
+        <ThemeScript />
+      </head>
       <body className="min-h-screen font-sans" suppressHydrationWarning>
         <Providers>{children}</Providers>
       </body>
