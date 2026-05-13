@@ -807,6 +807,17 @@ def _run(
             )
 
         if walkthrough is None:
+            previous_walkthrough = cache.find_previous_for_source(
+                source_label=source_label,
+                current_raw_diff=raw_diff,
+                provider=config.provider,
+                model=config.resolved_model,
+            )
+            if previous_walkthrough is not None:
+                console.print(
+                    "[dim]Found previous walkthrough for this source — "
+                    "passing to model for incremental re-analysis[/dim]"
+                )
             with console.status(
                 "[bold cyan]Starting analysis...", spinner="dots"
             ) as live:
@@ -815,6 +826,7 @@ def _run(
                     raw_diff,
                     metadata,
                     on_status=lambda msg: live.update(f"[bold cyan]{msg}"),
+                    previous_walkthrough=previous_walkthrough,
                 )
             console.print(
                 f"[dim]{_format_completion(walkthrough.metadata)}[/dim]"

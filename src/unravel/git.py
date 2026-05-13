@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import subprocess
@@ -329,4 +330,19 @@ def parse_diff(raw_diff: str) -> list[Hunk]:
             )
     for i, hunk in enumerate(hunks, 1):
         hunk.id = f"H{i}"
+        hunk.content_hash = compute_hunk_content_hash(hunk.file_path, hunk.content)
     return hunks
+
+
+def compute_hunk_content_hash(file_path: str, content: str) -> str:
+    """Deterministic identity for a hunk, stable across cosmetic line shifts.
+
+    The @@ header carries line numbers that shift when other parts of the file
+    change. Stripping it keeps the hash sensitive only to the actual added/
+    removed/context lines plus the file path.
+    """
+    body = "\n".join(
+        line for line in content.splitlines() if not line.startswith("@@")
+    )
+    payload = f"{file_path}\n{body}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]

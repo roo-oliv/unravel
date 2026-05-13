@@ -91,6 +91,7 @@ class Hunk:
     additions: int = 0
     deletions: int = 0
     caption: str = ""
+    content_hash: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -107,6 +108,7 @@ class Hunk:
             "additions": self.additions,
             "deletions": self.deletions,
             "caption": self.caption,
+            "content_hash": self.content_hash,
         }
 
     @classmethod

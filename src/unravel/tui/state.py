@@ -43,6 +43,7 @@ class WalkthroughState:
     # Tracking
     visited_pages: set[int] = field(default_factory=set)
     expanded_rows: set[tuple[int, int]] = field(default_factory=set)
+    viewed_content_hashes: set[str] = field(default_factory=set)
 
     # GitHub PR review (populated only when launched from `unravel pr`)
     pr_ctx: PrContext | None = None
@@ -204,6 +205,25 @@ class WalkthroughState:
         self.expanded_rows = {
             (pi, ri) for (pi, ri) in self.expanded_rows if pi != self.page_index
         }
+
+    # ------- Viewed tracking -------
+
+    def is_viewed(self, content_hash: str) -> bool:
+        return bool(content_hash) and content_hash in self.viewed_content_hashes
+
+    def toggle_viewed(self, content_hash: str) -> bool:
+        """Flip the viewed mark for a hunk. Returns the new state (True = viewed).
+
+        No-op (returns ``False``) when the hunk has no ``content_hash`` —
+        unhydrated/legacy hunks can't be tracked stably across re-runs.
+        """
+        if not content_hash:
+            return False
+        if content_hash in self.viewed_content_hashes:
+            self.viewed_content_hashes.remove(content_hash)
+            return False
+        self.viewed_content_hashes.add(content_hash)
+        return True
 
     # ------- Progress -------
 

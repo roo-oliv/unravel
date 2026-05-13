@@ -71,6 +71,7 @@ def hydrate_walkthrough(
                         additions=source.additions,
                         deletions=source.deletions,
                         caption=caption,
+                        content_hash=source.content_hash,
                     )
                 )
             step.hunks = resolved

@@ -180,6 +180,9 @@ class Hunk(Base):
     caption: Mapped[str] = mapped_column(Text, default="", nullable=False)
     additions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     deletions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    content_hash: Mapped[str] = mapped_column(
+        String(64), default="", nullable=False, index=True
+    )
 
     walkthrough: Mapped[Walkthrough] = relationship(back_populates="hunks")
 
@@ -404,6 +407,39 @@ class Session(Base):
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
+class HunkViewed(Base):
+    """Per-user "viewed" mark, keyed on stable hunk content_hash.
+
+    Identity by content_hash (not hunks.id) so the mark survives walkthrough
+    regeneration: a hunk whose textual content is unchanged keeps the same
+    content_hash across re-runs, so its viewed status carries over.
+    """
+
+    __tablename__ = "hunk_viewed"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "content_hash", name="uq_hunk_viewed_user_content"
+        ),
+        Index("ix_hunk_viewed_user", "user_id"),
+        Index("ix_hunk_viewed_content_hash", "content_hash"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    viewed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
 __all__ = [
     "Walkthrough",
     "Thread",
@@ -414,4 +450,5 @@ __all__ = [
     "PrComment",
     "User",
     "Session",
+    "HunkViewed",
 ]

@@ -25,6 +25,7 @@ from unravel.api.db_models import (
     ThreadStepHunk,
     Walkthrough,
 )
+from unravel.git import compute_hunk_content_hash
 
 WALKTHROUGH_EDITABLE_FIELDS = {"overview"}
 THREAD_EDITABLE_FIELDS = {"title", "summary", "root_cause"}
@@ -131,14 +132,21 @@ def _build_walkthrough_from_fixture(slug: str, fixture: dict) -> Walkthrough:
                     ref = hunk_ref.get("id")
                     if not ref or ref in hunks_by_ref:
                         continue
+                    file_path = hunk_ref.get("file_path", "") or ""
+                    content = hunk_ref.get("content") or ""
+                    content_hash = hunk_ref.get("content_hash") or (
+                        compute_hunk_content_hash(file_path, content)
+                        if file_path and content
+                        else ""
+                    )
                     hunks_by_ref[ref] = Hunk(
                         ref=ref,
-                        file_path=hunk_ref.get("file_path", "") or "",
+                        file_path=file_path,
                         old_start=int(hunk_ref.get("old_start") or 0),
                         old_count=int(hunk_ref.get("old_count") or 0),
                         new_start=int(hunk_ref.get("new_start") or 0),
                         new_count=int(hunk_ref.get("new_count") or 0),
-                        content=hunk_ref.get("content") or "",
+                        content=content,
                         context_before=hunk_ref.get("context_before") or "",
                         context_after=hunk_ref.get("context_after") or "",
                         language=hunk_ref.get("language"),
@@ -147,6 +155,7 @@ def _build_walkthrough_from_fixture(slug: str, fixture: dict) -> Walkthrough:
                         or "",
                         additions=int(hunk_ref.get("additions") or 0),
                         deletions=int(hunk_ref.get("deletions") or 0),
+                        content_hash=content_hash,
                     )
                 else:
                     ref = hunk_ref
@@ -302,6 +311,7 @@ def _hunk_to_dto(hunk: Hunk) -> dict[str, Any]:
         "caption": hunk.caption,
         "additions": hunk.additions,
         "deletions": hunk.deletions,
+        "content_hash": hunk.content_hash,
     }
 
 

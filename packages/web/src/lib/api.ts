@@ -133,6 +133,18 @@ export const api = {
     ),
   me: () => request<MeDTO>("/auth/me"),
   logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
+  listViewedHunks: (slug: string) =>
+    request<{ viewed_content_hashes: string[] }>(
+      `/walkthroughs/${encodeURIComponent(slug)}/viewed-hunks`,
+    ),
+  setHunkViewed: (slug: string, content_hash: string, viewed: boolean) =>
+    request<{ viewed_content_hashes: string[] }>(
+      `/walkthroughs/${encodeURIComponent(slug)}/viewed-hunks`,
+      {
+        method: "POST",
+        body: JSON.stringify({ content_hash, viewed }),
+      },
+    ),
 };
 
 export interface ReviewCommentPayload {
@@ -277,6 +289,7 @@ export interface HunkDTO {
   additions: number;
   deletions: number;
   caption: string;
+  content_hash: string;
 }
 
 export interface ThreadStepDTO {

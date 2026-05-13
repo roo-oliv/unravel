@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  CheckSquare,
   ChevronDown,
   ChevronRight,
   ChevronsDown,
@@ -11,6 +12,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Square,
   Trash2,
 } from "lucide-react";
 import type { CSSProperties } from "react";
@@ -41,6 +43,7 @@ import {
 } from "@/lib/pending-review";
 import { useMe } from "@/lib/use-me";
 import { cn } from "@/lib/utils";
+import { useViewedHunksStore } from "@/lib/viewed-hunks";
 
 import { CommentComposer } from "./comment-composer";
 import { Markdown } from "./markdown";
@@ -156,6 +159,9 @@ interface HunkViewProps {
   collapseSignal?: number;
   expandSignal?: number;
   stickyTop?: string;
+  /** Walkthrough slug — required for the "Viewed" checkbox to persist. When
+   * omitted (e.g. preview contexts) the checkbox is hidden. */
+  slug?: string;
 }
 
 export function HunkView({
@@ -165,6 +171,7 @@ export function HunkView({
   collapseSignal = 0,
   expandSignal = 0,
   stickyTop,
+  slug,
 }: HunkViewProps) {
   const siblings = siblingsForFile ?? [hunk];
   const fallback = useMemo(() => fallbackLines(hunk.content), [hunk.content]);
@@ -214,6 +221,35 @@ export function HunkView({
     refetchInterval: 30_000,
     retry: (failureCount, err) =>
       err instanceof ApiError && err.status === 404 ? false : failureCount < 1,
+  });
+
+  // Viewed-state + mutation. Anonymous and dev users see no checkbox: the gate
+  // is the same as the inline-comment composer (real GitHub login required).
+  const headerMe = useMe().data ?? null;
+  const viewedEnabled =
+    !!headerMe && !headerMe.is_dev_user && !!slug && !!hunk.content_hash;
+  const queryClient = useQueryClient();
+  const isViewed = useViewedHunksStore((s) =>
+    slug ? !!s.bySlug[slug]?.has(hunk.content_hash) : false,
+  );
+  const toggleOptimistic = useViewedHunksStore((s) => s.toggleOptimistic);
+  const setViewedSet = useViewedHunksStore((s) => s.set);
+  const viewedMutation = useMutation({
+    mutationFn: ({ viewed }: { viewed: boolean }) =>
+      api.setHunkViewed(slug!, hunk.content_hash, viewed),
+    onMutate: ({ viewed }) => {
+      if (slug) toggleOptimistic(slug, hunk.content_hash, viewed);
+    },
+    onSuccess: (data) => {
+      if (slug) setViewedSet(slug, data.viewed_content_hashes);
+      // Keep the query cache in sync so other consumers (e.g. the sidepanel
+      // counters) re-render off the same source of truth.
+      queryClient.setQueryData(["viewed-hunks", slug], data);
+    },
+    onError: () => {
+      // Roll back the optimistic toggle.
+      if (slug) toggleOptimistic(slug, hunk.content_hash, !isViewed);
+    },
   });
 
   // Threads anchored to THIS file that this hunk owns (closest to the anchor).
@@ -527,6 +563,31 @@ export function HunkView({
             <span className="text-rose-600 dark:text-rose-400">
               −{hunk.deletions}
             </span>
+          )}
+          {viewedEnabled && (
+            <button
+              type="button"
+              onClick={() => {
+                const next = !isViewed;
+                viewedMutation.mutate({ viewed: next });
+                if (next && !collapsed) setCollapsed(true);
+              }}
+              aria-pressed={isViewed}
+              title={isViewed ? "Mark as not viewed" : "Mark as viewed"}
+              className={cn(
+                "ml-1 inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-sans transition-colors",
+                isViewed
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                  : "border-border text-muted-foreground hover:bg-background hover:text-foreground",
+              )}
+            >
+              {isViewed ? (
+                <CheckSquare className="size-3.5" aria-hidden="true" />
+              ) : (
+                <Square className="size-3.5" aria-hidden="true" />
+              )}
+              Viewed
+            </button>
           )}
         </div>
       </header>

@@ -5,11 +5,18 @@ import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import type { Walkthrough } from "./types";
 
+function viewedColorClass(viewed: number, total: number): string {
+  if (total === 0 || viewed === 0) return "text-muted-foreground/60";
+  if (viewed < total) return "text-orange-500";
+  return "text-emerald-600 dark:text-emerald-500";
+}
+
 interface Props {
   walkthrough: Walkthrough;
   activeIndex: number;
   onSelect: (index: number) => void;
   collapsed?: boolean;
+  threadViewCounts?: Record<string, { total: number; viewed: number }>;
 }
 
 export function ThreadList({
@@ -17,6 +24,7 @@ export function ThreadList({
   activeIndex,
   onSelect,
   collapsed = false,
+  threadViewCounts,
 }: Props) {
   const order = walkthrough.suggested_order.length
     ? walkthrough.suggested_order
@@ -69,6 +77,7 @@ export function ThreadList({
             if (!thread) return null;
             const active = activeIndex === i;
             const num = String(i + 1).padStart(2, "0");
+            const counts = threadViewCounts?.[thread.id];
             return (
               <li
                 key={tid}
@@ -79,17 +88,31 @@ export function ThreadList({
                 <button
                   type="button"
                   onClick={() => onSelect(i)}
-                  title={thread.title}
+                  title={
+                    counts && counts.total > 0
+                      ? `${thread.title} — ${counts.viewed} of ${counts.total} hunks viewed`
+                      : thread.title
+                  }
                   aria-label={`Thread ${num}: ${thread.title}`}
                   aria-current={active ? "true" : undefined}
                   className={cn(
-                    "flex h-8 w-full items-center justify-center border-l-2 font-mono text-[11px] transition-colors",
+                    "flex min-h-8 w-full flex-col items-center justify-center gap-0 border-l-2 py-1 font-mono text-[11px] leading-tight transition-colors",
                     active
                       ? "border-foreground bg-accent text-foreground"
                       : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                   )}
                 >
-                  {num}
+                  <span>{num}</span>
+                  {counts && counts.total > 0 && (
+                    <span
+                      className={cn(
+                        "text-[9px]",
+                        viewedColorClass(counts.viewed, counts.total),
+                      )}
+                    >
+                      {counts.viewed}/{counts.total}
+                    </span>
+                  )}
                 </button>
               </li>
             );
@@ -169,6 +192,22 @@ export function ThreadList({
                       {thread.title}
                     </span>
                   </div>
+                  {(() => {
+                    const counts = threadViewCounts?.[thread.id];
+                    if (!counts || counts.total === 0) return null;
+                    const { total, viewed } = counts;
+                    return (
+                      <div
+                        className={cn(
+                          "mt-0.5 ml-6 text-[10px] leading-tight",
+                          viewedColorClass(viewed, total),
+                        )}
+                      >
+                        {viewed} viewed of {total} hunk
+                        {total === 1 ? "" : "s"}
+                      </div>
+                    );
+                  })()}
                   {thread.dependencies.length > 0 && (
                     <div className="mt-1 ml-6 flex flex-wrap gap-1">
                       {thread.dependencies.map((dep) => (
