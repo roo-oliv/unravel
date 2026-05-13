@@ -21,30 +21,40 @@ interface Group {
 
 const groups: Group[] = [
   {
-    heading: "Navigation",
+    heading: "Threads",
     items: [
       { keys: ["Tab"], label: "Next thread" },
       { keys: ["⇧", "Tab"], label: "Previous thread" },
-      { keys: ["j"], label: "Next thread" },
-      { keys: ["k"], label: "Previous thread" },
-      { keys: ["→"], label: "Next thread" },
-      { keys: ["←"], label: "Previous thread" },
+      { keys: ["l"], label: "Next thread" },
+      { keys: ["h"], label: "Previous thread" },
+      { keys: ["↓"], label: "Next thread" },
+      { keys: ["↑"], label: "Previous thread" },
     ],
   },
   {
-    heading: "Layout & hunks",
+    heading: "Hunks",
     items: [
-      { keys: ["f"], label: "Focus mode (collapse sidebar)" },
-      { keys: ["d"], label: "Toggle comments drawer" },
+      { keys: ["j"], label: "Next hunk" },
+      { keys: ["k"], label: "Previous hunk" },
+      { keys: ["→"], label: "Next hunk" },
+      { keys: ["←"], label: "Previous hunk" },
       { keys: ["e"], label: "Expand all hunks" },
       { keys: ["c"], label: "Collapse all hunks" },
+    ],
+  },
+  {
+    heading: "Layout",
+    items: [
+      { keys: ["f"], label: "Focus mode (collapse sidebar)" },
+      { keys: ["d"], label: "Jump to PR conversation (Overview)" },
+      { keys: ["t"], label: "Color theme picker" },
     ],
   },
   {
     heading: "Palette & help",
     items: [
       { keys: ["⌘", "K"], label: "Command palette / jump to thread" },
-      { keys: ["h"], label: "Toggle this help" },
+      { keys: ["?"], label: "Toggle this help" },
       { keys: ["Esc"], label: "Close any overlay" },
     ],
   },

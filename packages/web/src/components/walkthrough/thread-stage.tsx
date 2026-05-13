@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowDown } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { FieldEditDTO } from "@/lib/api";
@@ -35,6 +36,10 @@ interface Props {
   slug?: string;
   walkthroughUuid?: string;
   historyByKey: Record<string, FieldEditDTO[]>;
+  /** When non-null, footer offers a "next thread" button; when null, it
+   * shows the friendly end-of-walkthrough sign-off. Ignored on overview. */
+  nextThread?: Thread | null;
+  onGoToNextThread?: () => void;
 }
 
 const EMPTY_HISTORY: FieldEditDTO[] = [];
@@ -58,6 +63,8 @@ export function ThreadStage({
   slug,
   walkthroughUuid,
   historyByKey,
+  nextThread = null,
+  onGoToNextThread,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const threadHeaderRef = useRef<HTMLElement>(null);
@@ -326,6 +333,10 @@ export function ThreadStage({
             />
           ))}
         </ol>
+        <ThreadFooter
+          nextThread={nextThread}
+          onGoToNextThread={onGoToNextThread}
+        />
       </article>
     </div>
   );
@@ -436,5 +447,46 @@ function StickyStep({
         })}
       </div>
     </li>
+  );
+}
+
+function ThreadFooter({
+  nextThread,
+  onGoToNextThread,
+}: {
+  nextThread: Thread | null;
+  onGoToNextThread?: () => void;
+}) {
+  if (nextThread && onGoToNextThread) {
+    return (
+      <div className="mt-10 flex justify-center">
+        <button
+          type="button"
+          onClick={onGoToNextThread}
+          className="group flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <span>
+            Next thread:{" "}
+            <span className="font-medium text-foreground">
+              {nextThread.title || "Untitled thread"}
+            </span>
+          </span>
+          <ArrowDown
+            className="size-4 transition-transform group-hover:translate-y-0.5"
+            aria-hidden="true"
+          />
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-10 flex flex-col items-center gap-1 text-center text-sm text-muted-foreground">
+      <span aria-hidden="true" className="text-base">
+        ✨
+      </span>
+      <span>
+        That&apos;s the end of this walkthrough. Thanks for following along!
+      </span>
+    </div>
   );
 }

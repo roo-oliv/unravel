@@ -48,6 +48,8 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
+  // -1 = no active hunk; otherwise index into activeThreadHunkIds.
+  const [activeHunkIndex, setActiveHunkIndex] = useState(-1);
   // Counters increment on each press; HunkView reacts on change.
   const [collapseSignal, setCollapseSignal] = useState(0);
   const [expandSignal, setExpandSignal] = useState(0);
@@ -232,7 +234,67 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
     return walkthrough.threads.find((t) => t.id === tid) ?? null;
   }, [activeIndex, order, walkthrough.threads]);
 
+  const nextThread = useMemo(() => {
+    if (activeIndex < 0 || activeIndex >= order.length - 1) return null;
+    const tid = order[activeIndex + 1];
+    return walkthrough.threads.find((t) => t.id === tid) ?? null;
+  }, [activeIndex, order, walkthrough.threads]);
+
+  // Ordered hunk IDs in the active thread (dedup by content_hash to mirror
+  // how ThreadStage renders them — multiple steps may reference the same
+  // hunk and we don't want to navigate to the same DOM node twice).
+  const activeThreadHunkIds = useMemo<string[]>(() => {
+    if (!activeThread) return [];
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    for (const step of activeThread.steps) {
+      for (const ref of hunkRefs(step)) {
+        if (seen.has(ref)) continue;
+        seen.add(ref);
+        ids.push(ref);
+      }
+    }
+    return ids;
+  }, [activeThread]);
+
+  // Reset hunk cursor whenever the active thread changes — j/k always picks
+  // up from the first hunk in a freshly-entered thread.
+  useEffect(() => {
+    setActiveHunkIndex(-1);
+  }, [activeIndex]);
+
+  const scrollToHunkAt = useCallback(
+    (idx: number) => {
+      const hunkRef = activeThreadHunkIds[idx];
+      if (!hunkRef) return;
+      // hunkRefs() returns "<hunk-id>" strings; HunkView renders id="hunk-${id}".
+      const el = document.getElementById(`hunk-${hunkRef}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    },
+    [activeThreadHunkIds],
+  );
+
+  const goNextHunk = useCallback(() => {
+    if (activeThreadHunkIds.length === 0) return;
+    setActiveHunkIndex((i) => {
+      const next = Math.min(activeThreadHunkIds.length - 1, i + 1);
+      scrollToHunkAt(next);
+      return next;
+    });
+  }, [activeThreadHunkIds.length, scrollToHunkAt]);
+
+  const goPrevHunk = useCallback(() => {
+    if (activeThreadHunkIds.length === 0) return;
+    setActiveHunkIndex((i) => {
+      const next = Math.max(0, i - 1);
+      scrollToHunkAt(next);
+      return next;
+    });
+  }, [activeThreadHunkIds.length, scrollToHunkAt]);
+
   // TUI parity bindings.
+  // Thread navigation: Tab/Shift+Tab, h/l, ↑/↓.
+  // Hunk navigation: j/k, ←/→.
   useHotkeys("tab", (e) => {
     e.preventDefault();
     setActiveIndex((i) => Math.min(order.length - 1, i + 1));
@@ -241,13 +303,21 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
     e.preventDefault();
     setActiveIndex((i) => Math.max(-1, i - 1));
   });
-  useHotkeys("j,right", (e) => {
+  useHotkeys("l,down", (e) => {
     e.preventDefault();
     setActiveIndex((i) => Math.min(order.length - 1, i + 1));
   });
-  useHotkeys("k,left", (e) => {
+  useHotkeys("h,up", (e) => {
     e.preventDefault();
     setActiveIndex((i) => Math.max(-1, i - 1));
+  });
+  useHotkeys("j,right", (e) => {
+    e.preventDefault();
+    goNextHunk();
+  });
+  useHotkeys("k,left", (e) => {
+    e.preventDefault();
+    goPrevHunk();
   });
   useHotkeys(
     "mod+k",
@@ -257,7 +327,7 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
     },
     { enableOnFormTags: true, enableOnContentEditable: true },
   );
-  useHotkeys("h", (e) => {
+  useHotkeys("shift+slash", (e) => {
     e.preventDefault();
     setHelpOpen((o) => !o);
   });
@@ -352,7 +422,7 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
             className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
           >
             <kbd className="rounded border bg-background px-1 font-mono text-[10px]">
-              h
+              ?
             </kbd>
             <span className="hidden sm:inline">help</span>
           </button>
@@ -459,6 +529,10 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
             slug={slug}
             walkthroughUuid={walkthroughUuid}
             historyByKey={historyByKey}
+            nextThread={nextThread}
+            onGoToNextThread={() =>
+              setActiveIndex((i) => Math.min(order.length - 1, i + 1))
+            }
           />
         </main>
       </div>
@@ -468,15 +542,20 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
           <span className="flex items-center gap-1">
             <kbd className="rounded border bg-background px-1 py-0.5">j</kbd>
             <kbd className="rounded border bg-background px-1 py-0.5">k</kbd>
-            <kbd className="rounded border bg-background px-1 py-0.5">↹</kbd>
-            <span className="ml-1">navigate</span>
+            <span className="ml-1">hunk</span>
           </span>
           <span className="flex items-center gap-1">
+            <kbd className="rounded border bg-background px-1 py-0.5">h</kbd>
+            <kbd className="rounded border bg-background px-1 py-0.5">l</kbd>
+            <kbd className="rounded border bg-background px-1 py-0.5">↹</kbd>
+            <span className="ml-1">thread</span>
+          </span>
+          <span className="hidden items-center gap-1 sm:flex">
             <kbd className="rounded border bg-background px-1 py-0.5">e</kbd>
             <kbd className="rounded border bg-background px-1 py-0.5">c</kbd>
             <span className="ml-1">expand / collapse</span>
           </span>
-          <span className="hidden items-center gap-1 sm:flex">
+          <span className="hidden items-center gap-1 md:flex">
             <kbd className="rounded border bg-background px-1 py-0.5">f</kbd>
             <span>focus</span>
           </span>
@@ -485,7 +564,7 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
             <span>palette</span>
           </span>
           <span className="hidden items-center gap-1 lg:flex">
-            <kbd className="rounded border bg-background px-1 py-0.5">h</kbd>
+            <kbd className="rounded border bg-background px-1 py-0.5">?</kbd>
             <span>help</span>
           </span>
           <span className="hidden items-center gap-1 lg:flex">
