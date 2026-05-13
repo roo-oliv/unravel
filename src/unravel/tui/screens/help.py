@@ -23,10 +23,17 @@ HELP_TEXT = """\
   [bold]e[/bold]               Expand all rows on this thread
   [bold]c[/bold]               Collapse all rows on this thread
 
+[bold cyan]GitHub PR review[/bold cyan] (only when opened from [italic]unravel pr[/italic])
+  [bold]a[/bold]               New PR-level comment
+  [bold]n[/bold]               New inline comment on the focused (expanded) hunk
+  [bold]R[/bold]               Refresh PR status / comments from GitHub
+  [bold]S[/bold]               Submit review (Approve / Comment / Request changes / Discard)
+
 [bold cyan]General[/bold cyan]
   [bold],[/bold]               Settings (wrap mode, syntax highlight, …)
   [bold]?[/bold]               This help screen
-  [bold]q[/bold]               Quit
+  [bold]q[/bold]               Quit (prompts if there are unsubmitted comments;
+                  pending comments are saved locally between sessions)
 """
 
 

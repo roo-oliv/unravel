@@ -7,7 +7,15 @@ from rich.text import Text
 from textual.widgets import Static
 
 from unravel.models import SourceInfo
+from unravel.tui.review_state import PrSnapshot
 from unravel.tui.state import PageStatus, WalkthroughState
+
+_PR_STATE_STYLES: dict[str, tuple[str, str]] = {
+    "open": ("●  open", "bold green"),
+    "draft": ("◐  draft", "bold #888888"),
+    "merged": ("●  merged", "bold magenta"),
+    "closed": ("●  closed", "bold red"),
+}
 
 STATUS_CHAR: dict[PageStatus, str] = {
     "completed": "✓",
@@ -39,7 +47,14 @@ class Timeline(Static):
 
 def _render_timeline(state: WalkthroughState) -> Group:
     """Build a 4-row Rich renderable: source | title | dots | status."""
-    source_line = _render_source_line(state.source_info)
+    source_line = _render_source_line(
+        state.source_info,
+        snapshot=state.pr_snapshot,
+        is_loading=state.pr_ctx is not None
+        and state.pr_snapshot is None
+        and state.pr_snapshot_error is None,
+        load_error=state.pr_snapshot_error,
+    )
 
     # Title line (only the current thread gets a title)
     title_line = Text(justify="center")
@@ -95,8 +110,14 @@ _KIND_STYLES: dict[str, str] = {
 }
 
 
-def _render_source_line(info: SourceInfo | None) -> Text:
-    """First header line: repo + PR/commit/range/branch identifier."""
+def _render_source_line(
+    info: SourceInfo | None,
+    *,
+    snapshot: PrSnapshot | None = None,
+    is_loading: bool = False,
+    load_error: str | None = None,
+) -> Text:
+    """First header line: repo + PR/commit/range/branch identifier + status pill."""
     line = Text(justify="center")
     if info is None:
         return line
@@ -108,7 +129,28 @@ def _render_source_line(info: SourceInfo | None) -> Text:
     if info.detail:
         line.append("  ")
         line.append(info.detail, style="dim")
+    if info.kind == "pr":
+        line.append("  ")
+        _append_pr_pill(line, snapshot=snapshot, is_loading=is_loading, error=load_error)
     return line
+
+
+def _append_pr_pill(
+    line: Text,
+    *,
+    snapshot: PrSnapshot | None,
+    is_loading: bool,
+    error: str | None,
+) -> None:
+    if snapshot is not None:
+        label, style = _PR_STATE_STYLES.get(snapshot.state, (snapshot.state, "bold"))
+        line.append(label, style=style)
+        return
+    if error:
+        line.append("(gh error)", style="bold red")
+        return
+    if is_loading:
+        line.append("(loading…)", style="dim italic")
 
 
 def _render_dots(state: WalkthroughState) -> Text:
