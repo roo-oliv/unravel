@@ -3,12 +3,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
 import { api, type FieldEditDTO, type HunkDTO } from "@/lib/api";
 import { ownsLine } from "@/lib/hunk-ownership";
 import type { PendingReviewComment } from "@/lib/pending-review";
+import { useMe } from "@/lib/use-me";
+import { useViewedHunksStore } from "@/lib/viewed-hunks";
 
 import { UserMenu } from "../user-menu";
 import { CommandPalette } from "./command-palette";
@@ -168,6 +170,51 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
     enabled: !!walkthroughUuid,
     refetchInterval: false,
   });
+
+  // Hydrate the per-user "viewed hunks" store from the server. Anonymous /
+  // dev users get an empty set (the endpoint returns []), which keeps the
+  // checkboxes hidden via the same gate that controls the inline composer.
+  const me = useMe().data ?? null;
+  const viewedEnabled = !!me && !me.is_dev_user && !!slug;
+  const hydrateViewed = useViewedHunksStore((s) => s.hydrate);
+  const viewedQuery = useQuery({
+    queryKey: ["viewed-hunks", slug],
+    queryFn: () => api.listViewedHunks(slug!),
+    enabled: viewedEnabled,
+    refetchInterval: false,
+  });
+  useEffect(() => {
+    if (!slug) return;
+    hydrateViewed(slug, viewedQuery.data?.viewed_content_hashes ?? []);
+  }, [slug, viewedQuery.data, hydrateViewed]);
+
+  const viewedHashes = useViewedHunksStore(
+    (s) => (slug ? s.bySlug[slug] : undefined),
+  );
+
+  // For each thread (by suggested-order index) pre-compute its total hunk
+  // count and how many are viewed. Counts are deduped by content_hash so the
+  // sidepanel doesn't double-count hunks reused across steps.
+  const threadViewCounts = useMemo<
+    Record<string, { total: number; viewed: number }>
+  >(() => {
+    const out: Record<string, { total: number; viewed: number }> = {};
+    for (const thread of walkthrough.threads) {
+      const hashes = new Set<string>();
+      for (const step of thread.steps) {
+        for (const ref of hunkRefs(step)) {
+          const h = hunkIndex[ref];
+          if (h?.content_hash) hashes.add(h.content_hash);
+        }
+      }
+      let viewed = 0;
+      if (viewedHashes) {
+        for (const h of hashes) if (viewedHashes.has(h)) viewed++;
+      }
+      out[thread.id] = { total: hashes.size, viewed };
+    }
+    return out;
+  }, [walkthrough.threads, hunkIndex, viewedHashes]);
   const historyByKey = useMemo<Record<string, FieldEditDTO[]>>(() => {
     const map: Record<string, FieldEditDTO[]> = {};
     for (const edit of historyQuery.data?.history ?? []) {
@@ -381,6 +428,7 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
             activeIndex={activeIndex}
             onSelect={setActiveIndex}
             collapsed={sidebarCollapsed}
+            threadViewCounts={threadViewCounts}
           />
         </aside>
         <main className="min-h-0 overflow-hidden bg-background">

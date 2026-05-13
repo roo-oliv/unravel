@@ -21,6 +21,7 @@ from unravel.tui.review_storage import (
     save_pending,
 )
 from unravel.tui.state import WalkthroughState
+from unravel.tui.viewed_storage import load_viewed, save_viewed
 from unravel.tui.widgets.footer_bar import FooterBar
 from unravel.tui.widgets.page_content import render_page
 from unravel.tui.widgets.timeline import Timeline
@@ -66,6 +67,7 @@ class WalkthroughScreen(Screen):
         Binding("comma", "show_settings", "Settings", show=False),
         Binding("question_mark", "show_help", "Help", show=False),
         Binding("q", "quit_app", "Quit", show=False),
+        Binding("v", "toggle_viewed", "Toggle viewed", show=False),
         # ---- Review (PRs only) ----
         Binding("n", "new_inline_comment", "New inline comment", show=False),
         Binding("a", "new_pr_comment", "New PR-level comment", show=False),
@@ -86,9 +88,23 @@ class WalkthroughScreen(Screen):
     def on_mount(self) -> None:
         self._apply_wrap_mode()
         self._restore_pending_review()
+        self._restore_viewed()
         self._refresh_all()
         if self.state.pr_ctx is not None:
             self.run_worker(self._load_snapshot, thread=True, name="pr-snapshot")
+
+    def _restore_viewed(self) -> None:
+        """Re-hydrate viewed-hunk marks for the current source from disk."""
+        restored = load_viewed(self.state.source_info, self.state.pr_ctx)
+        if restored:
+            self.state.viewed_content_hashes = restored
+
+    def _persist_viewed(self) -> None:
+        save_viewed(
+            self.state.source_info,
+            self.state.viewed_content_hashes,
+            self.state.pr_ctx,
+        )
 
     def _restore_pending_review(self) -> None:
         """Re-hydrate pending review from disk for the current PR, if any."""
@@ -167,6 +183,31 @@ class WalkthroughScreen(Screen):
         if not self.state.is_overview:
             self.state.collapse_all_on_page()
             self._refresh_all()
+
+    def action_toggle_viewed(self) -> None:
+        """v: mark/unmark the currently focused hunk as viewed.
+
+        Marking auto-collapses the hunk if expanded (mirroring the GitHub
+        "Viewed" affordance). Unmarking does not change expand state. The
+        viewed set is keyed on stable ``content_hash`` so a re-run on a
+        rebased PR keeps marks for unchanged hunks.
+        """
+        if self.state.is_overview:
+            return
+        hunk = self.state.current_hunk()
+        if hunk is None or not hunk.content_hash:
+            self.notify(
+                "This hunk has no stable identity yet — re-run unravel to enable viewed tracking.",
+                severity="warning",
+            )
+            return
+        now_viewed = self.state.toggle_viewed(hunk.content_hash)
+        if now_viewed and self.state.is_expanded(
+            self.state.page_index, self.state.row_index
+        ):
+            self.state.toggle_expand()
+        self._persist_viewed()
+        self._refresh_all()
 
     def action_show_settings(self) -> None:
         from unravel.tui.screens.settings import SettingsScreen

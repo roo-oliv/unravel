@@ -46,8 +46,11 @@ class ClaudeAPIProvider(BaseProvider):
         metadata: dict,
         *,
         on_status: Callable[[str], None] | None = None,
+        previous_walkthrough: Walkthrough | None = None,
     ) -> Walkthrough:
-        system_prompt, user_prompt = build_analysis_prompt(raw_diff, hunks, metadata)
+        system_prompt, user_prompt = build_analysis_prompt(
+            raw_diff, hunks, metadata, previous_walkthrough=previous_walkthrough
+        )
 
         def status(msg: str) -> None:
             if on_status:

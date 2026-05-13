@@ -158,3 +158,41 @@ def list_entries() -> list[CacheListing]:
         )
     out.sort(key=lambda e: e.cached_at, reverse=True)
     return out
+
+
+def find_previous_for_source(
+    source_label: str,
+    current_raw_diff: str,
+    provider: str,
+    model: str,
+) -> Walkthrough | None:
+    """Return the most recent cached walkthrough for ``source_label`` whose
+    diff differs from the current one.
+
+    Used to feed the previous walkthrough back to the model on a re-run so it
+    can preserve thread structure for unchanged hunks. Filters by provider so
+    we don't mix output styles across providers.
+    """
+    if not source_label:
+        return None
+    current_key = cache_key(current_raw_diff, provider, model)
+    candidates = [
+        entry
+        for entry in list_entries()
+        if entry.source_label == source_label and entry.provider == provider
+    ]
+    for entry in candidates:
+        if entry.path.stem == current_key:
+            continue
+        try:
+            data = json.loads(entry.path.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        wt_data = data.get("walkthrough")
+        if not isinstance(wt_data, dict):
+            continue
+        try:
+            return Walkthrough.from_dict(wt_data)
+        except (KeyError, TypeError):
+            continue
+    return None

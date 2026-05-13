@@ -322,6 +322,7 @@ export function ThreadStage({
               expandSignal={expandSignal}
               walkthroughUuid={walkthroughUuid}
               historyByKey={historyByKey}
+              slug={slug}
             />
           ))}
         </ol>
@@ -339,6 +340,7 @@ interface StickyStepProps {
   expandSignal: number;
   walkthroughUuid?: string;
   historyByKey: Record<string, FieldEditDTO[]>;
+  slug?: string;
 }
 
 function StickyStep({
@@ -350,6 +352,7 @@ function StickyStep({
   expandSignal,
   walkthroughUuid,
   historyByKey,
+  slug,
 }: StickyStepProps) {
   const stepRef = useRef<HTMLLIElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -427,6 +430,7 @@ function StickyStep({
               stickyTop="calc(var(--thread-h, 48px) + var(--step-h, 0px))"
               collapseSignal={collapseSignal}
               expandSignal={expandSignal}
+              slug={slug}
             />
           );
         })}

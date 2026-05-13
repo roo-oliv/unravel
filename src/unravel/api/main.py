@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from unravel.api.routers import auth, edits, github, walkthroughs
+from unravel.api.routers import auth, edits, github, viewed_hunks, walkthroughs
 
 
 def create_app() -> FastAPI:
@@ -56,6 +56,7 @@ def create_app() -> FastAPI:
     app.include_router(walkthroughs.router, tags=["walkthroughs"])
     app.include_router(edits.router, tags=["edits"])
     app.include_router(github.router, tags=["github"])
+    app.include_router(viewed_hunks.router, tags=["viewed-hunks"])
 
     return app
 

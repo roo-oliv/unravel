@@ -221,6 +221,11 @@ def _render_thread_rows(
                 style="bold yellow" if is_focused else "dim",
             )
 
+            viewed = state.is_viewed(hunk.content_hash)
+            checkbox_glyph = "☑ " if viewed else "☐ "
+            checkbox_style = "green" if viewed else ("yellow" if is_focused else "dim")
+            file_line.append(checkbox_glyph, style=checkbox_style)
+
             path_style = "bold" if is_focused else ""
             if is_focused:
                 file_line.append(
@@ -560,6 +565,10 @@ def _render_full_diff(state: WalkthroughState) -> RenderableType:
                 f"  {prefix}",
                 style="bold yellow" if is_focused else "dim",
             )
+            viewed = state.is_viewed(hunk.content_hash)
+            checkbox_glyph = "☑ " if viewed else "☐ "
+            checkbox_style = "green" if viewed else ("yellow" if is_focused else "dim")
+            row_line.append(checkbox_glyph, style=checkbox_style)
             id_style = (
                 "bold reverse yellow" if is_focused else "bold cyan"
             )
