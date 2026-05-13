@@ -3,59 +3,242 @@
 @tailwind utilities;
 
 @layer base {
+  /* Fallback values used until ThemeScript applies data-theme.
+   * Mirrors :root[data-theme="github-light"]. */
   :root {
     --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --foreground: 213 13% 16%;
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 213 13% 16%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5% 64.9%;
+    --popover-foreground: 213 13% 16%;
+    --primary: 213 80% 47%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 17% 95%;
+    --secondary-foreground: 213 13% 16%;
+    --muted: 210 17% 95%;
+    --muted-foreground: 215 14% 34%;
+    --accent: 210 17% 95%;
+    --accent-foreground: 213 13% 16%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 210 18% 87%;
+    --input: 210 18% 87%;
+    --ring: 213 80% 47%;
     --radius: 0.5rem;
 
-    --diff-add: 145 60% 96%;
-    --diff-add-line: 145 60% 70%;
-    --diff-del: 0 70% 96%;
-    --diff-del-line: 0 70% 75%;
+    --diff-add: 134 60% 92%;
+    --diff-add-line: 134 61% 41%;
+    --diff-del: 356 75% 95%;
+    --diff-del-line: 356 75% 53%;
   }
 
-  .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 5%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 5%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
+  :root[data-theme="github-light"] {
+    --background: 0 0% 100%;
+    --foreground: 213 13% 16%;
+    --card: 0 0% 100%;
+    --card-foreground: 213 13% 16%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 213 13% 16%;
+    --primary: 213 80% 47%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 17% 95%;
+    --secondary-foreground: 213 13% 16%;
+    --muted: 210 17% 95%;
+    --muted-foreground: 215 14% 34%;
+    --accent: 210 17% 95%;
+    --accent-foreground: 213 13% 16%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 210 18% 87%;
+    --input: 210 18% 87%;
+    --ring: 213 80% 47%;
+    --diff-add: 134 60% 92%;
+    --diff-add-line: 134 61% 41%;
+    --diff-del: 356 75% 95%;
+    --diff-del-line: 356 75% 53%;
+  }
 
-    --diff-add: 145 50% 12%;
-    --diff-add-line: 145 50% 35%;
-    --diff-del: 0 60% 14%;
-    --diff-del-line: 0 60% 40%;
+  :root[data-theme="solarized-light"] {
+    --background: 44 87% 94%;
+    --foreground: 194 14% 40%;
+    --card: 46 42% 88%;
+    --card-foreground: 194 14% 40%;
+    --popover: 46 42% 88%;
+    --popover-foreground: 194 14% 40%;
+    --primary: 175 74% 37%;
+    --primary-foreground: 44 87% 94%;
+    --secondary: 46 42% 88%;
+    --secondary-foreground: 194 14% 40%;
+    --muted: 46 42% 88%;
+    --muted-foreground: 180 7% 50%;
+    --accent: 46 42% 84%;
+    --accent-foreground: 194 14% 30%;
+    --destructive: 1 71% 52%;
+    --destructive-foreground: 44 87% 94%;
+    --border: 46 30% 80%;
+    --input: 46 30% 80%;
+    --ring: 175 74% 37%;
+    --diff-add: 68 60% 85%;
+    --diff-add-line: 68 100% 30%;
+    --diff-del: 1 60% 88%;
+    --diff-del-line: 1 71% 52%;
+  }
+
+  :root[data-theme="monokai"] {
+    --background: 70 8% 15%;
+    --foreground: 60 30% 96%;
+    --card: 60 4% 13%;
+    --card-foreground: 60 30% 96%;
+    --popover: 60 4% 13%;
+    --popover-foreground: 60 30% 96%;
+    --primary: 80 76% 53%;
+    --primary-foreground: 70 8% 15%;
+    --secondary: 60 5% 20%;
+    --secondary-foreground: 60 30% 96%;
+    --muted: 60 5% 20%;
+    --muted-foreground: 60 8% 60%;
+    --accent: 60 5% 25%;
+    --accent-foreground: 60 30% 96%;
+    --destructive: 338 95% 56%;
+    --destructive-foreground: 60 30% 96%;
+    --border: 60 4% 25%;
+    --input: 60 4% 25%;
+    --ring: 80 76% 53%;
+    --diff-add: 80 30% 18%;
+    --diff-add-line: 80 76% 53%;
+    --diff-del: 338 50% 22%;
+    --diff-del-line: 338 95% 56%;
+  }
+
+  :root[data-theme="dracula"] {
+    --background: 231 15% 18%;
+    --foreground: 60 30% 96%;
+    --card: 232 14% 23%;
+    --card-foreground: 60 30% 96%;
+    --popover: 232 14% 23%;
+    --popover-foreground: 60 30% 96%;
+    --primary: 265 89% 78%;
+    --primary-foreground: 231 15% 18%;
+    --secondary: 232 14% 31%;
+    --secondary-foreground: 60 30% 96%;
+    --muted: 232 14% 25%;
+    --muted-foreground: 232 14% 65%;
+    --accent: 232 14% 31%;
+    --accent-foreground: 60 30% 96%;
+    --destructive: 0 100% 67%;
+    --destructive-foreground: 60 30% 96%;
+    --border: 232 14% 31%;
+    --input: 232 14% 31%;
+    --ring: 265 89% 78%;
+    --diff-add: 135 30% 22%;
+    --diff-add-line: 135 94% 65%;
+    --diff-del: 0 50% 27%;
+    --diff-del-line: 0 100% 67%;
+  }
+
+  :root[data-theme="github-dark"] {
+    --background: 220 24% 7%;
+    --foreground: 213 27% 84%;
+    --card: 217 16% 11%;
+    --card-foreground: 213 27% 84%;
+    --popover: 217 16% 11%;
+    --popover-foreground: 213 27% 84%;
+    --primary: 212 92% 64%;
+    --primary-foreground: 220 24% 7%;
+    --secondary: 215 14% 17%;
+    --secondary-foreground: 213 27% 84%;
+    --muted: 215 14% 17%;
+    --muted-foreground: 215 14% 51%;
+    --accent: 215 14% 20%;
+    --accent-foreground: 213 27% 84%;
+    --destructive: 0 64% 56%;
+    --destructive-foreground: 213 27% 84%;
+    --border: 215 14% 22%;
+    --input: 215 14% 22%;
+    --ring: 212 92% 64%;
+    --diff-add: 134 30% 16%;
+    --diff-add-line: 137 55% 46%;
+    --diff-del: 0 45% 20%;
+    --diff-del-line: 0 64% 56%;
+  }
+
+  :root[data-theme="solarized-dark"] {
+    --background: 192 100% 11%;
+    --foreground: 186 8% 55%;
+    --card: 192 81% 14%;
+    --card-foreground: 186 8% 55%;
+    --popover: 192 81% 14%;
+    --popover-foreground: 186 8% 55%;
+    --primary: 175 74% 37%;
+    --primary-foreground: 192 100% 11%;
+    --secondary: 192 81% 14%;
+    --secondary-foreground: 186 8% 55%;
+    --muted: 192 81% 14%;
+    --muted-foreground: 196 13% 45%;
+    --accent: 192 81% 17%;
+    --accent-foreground: 195 8% 70%;
+    --destructive: 1 71% 52%;
+    --destructive-foreground: 44 87% 94%;
+    --border: 192 81% 17%;
+    --input: 192 81% 17%;
+    --ring: 175 74% 37%;
+    --diff-add: 68 35% 16%;
+    --diff-add-line: 68 80% 35%;
+    --diff-del: 1 55% 24%;
+    --diff-del-line: 1 71% 52%;
+  }
+
+  :root[data-theme="one-dark"] {
+    --background: 220 13% 18%;
+    --foreground: 219 14% 71%;
+    --card: 220 13% 14%;
+    --card-foreground: 219 14% 71%;
+    --popover: 220 13% 14%;
+    --popover-foreground: 219 14% 71%;
+    --primary: 207 82% 66%;
+    --primary-foreground: 220 13% 18%;
+    --secondary: 220 13% 23%;
+    --secondary-foreground: 219 14% 71%;
+    --muted: 220 13% 23%;
+    --muted-foreground: 220 10% 55%;
+    --accent: 220 13% 26%;
+    --accent-foreground: 219 14% 71%;
+    --destructive: 355 65% 65%;
+    --destructive-foreground: 220 13% 18%;
+    --border: 220 13% 26%;
+    --input: 220 13% 26%;
+    --ring: 207 82% 66%;
+    --diff-add: 95 25% 18%;
+    --diff-add-line: 95 38% 52%;
+    --diff-del: 355 35% 25%;
+    --diff-del-line: 355 65% 65%;
+  }
+
+  :root[data-theme="native"] {
+    --background: 0 0% 13%;
+    --foreground: 0 0% 83%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 83%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 83%;
+    --primary: 30 100% 50%;
+    --primary-foreground: 0 0% 13%;
+    --secondary: 0 0% 20%;
+    --secondary-foreground: 0 0% 83%;
+    --muted: 0 0% 20%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 0 0% 25%;
+    --accent-foreground: 0 0% 95%;
+    --destructive: 0 78% 55%;
+    --destructive-foreground: 0 0% 95%;
+    --border: 0 0% 25%;
+    --input: 0 0% 25%;
+    --ring: 30 100% 50%;
+    --diff-add: 120 25% 15%;
+    --diff-add-line: 120 50% 45%;
+    --diff-del: 0 45% 22%;
+    --diff-del-line: 0 78% 55%;
   }
 
   * {

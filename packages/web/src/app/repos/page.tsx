@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 
+import { ThemePaletteButton } from "@/components/theme/theme-palette-button";
 import { UserMenu } from "@/components/user-menu";
 import { api } from "@/lib/api";
 
@@ -27,7 +28,8 @@ export default function ReposPage() {
             and they show up here.
           </p>
         </div>
-        <div className="shrink-0 text-xs">
+        <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+          <ThemePaletteButton />
           <UserMenu next="/repos" />
         </div>
       </header>

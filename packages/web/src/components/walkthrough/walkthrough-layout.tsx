@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
+import { Palette, PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -12,6 +12,7 @@ import type { PendingReviewComment } from "@/lib/pending-review";
 import { useMe } from "@/lib/use-me";
 import { useViewedHunksStore } from "@/lib/viewed-hunks";
 
+import { ThemePalettePopover } from "../theme/theme-palette-popover";
 import { UserMenu } from "../user-menu";
 import { CommandPalette } from "./command-palette";
 import { PendingEditsBar } from "./pending-edits-bar";
@@ -46,6 +47,7 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
   // Counters increment on each press; HunkView reacts on change.
   const [collapseSignal, setCollapseSignal] = useState(0);
   const [expandSignal, setExpandSignal] = useState(0);
@@ -259,6 +261,10 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
     e.preventDefault();
     setHelpOpen((o) => !o);
   });
+  useHotkeys("t", (e) => {
+    e.preventDefault();
+    setThemeOpen((o) => !o);
+  });
   useHotkeys("e", (e) => {
     e.preventDefault();
     setExpandSignal((n) => n + 1);
@@ -349,6 +355,18 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
               h
             </kbd>
             <span className="hidden sm:inline">help</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setThemeOpen(true)}
+            aria-label="Choose color theme"
+            title="Choose color theme (t)"
+            className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+          >
+            <kbd className="rounded border bg-background px-1 font-mono text-[10px]">
+              t
+            </kbd>
+            <Palette className="size-3.5" aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -488,6 +506,7 @@ export function WalkthroughLayout({ walkthrough, slug }: Props) {
       />
       <ShortcutsHelp open={helpOpen} onOpenChange={setHelpOpen} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <ThemePalettePopover open={themeOpen} onOpenChange={setThemeOpen} />
     </div>
   );
 }
